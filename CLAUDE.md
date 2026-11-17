@@ -99,6 +99,16 @@
     trading lost the money. Reversal was worse in ranges than in trends, so the switch did not help. Not to be
     re-tuned on the development window. Maker entries were not better by their registered rule (2026-11-17d), so
     the lab stays at market entries; the replay can take maker entries (`execution`, #161).
+  - Parameter search on the pilot (owner 2026-11-17, "来开始探索交易的参数数值设置多少最佳", scopes A and B,
+    `lab/pilot_params.py`). Both failed their registered adoption rules, so nothing changes; neither is to be re-tuned
+    on the development window.
+    - A, the risk and execution settings: 60 settings of position multiple, stop/exchange leverage, after-stop rule and
+      latches (`research/results/pilot_params_2026-11-17/`). The year-by-year choice made Sharpe 0.29, against 0.78 for
+      today's settings on the same years, so today's settings stay.
+    - B, the overlay's signal settings: 72 settings of lookbacks, target volatility, band and signal form
+      (`research/results/overlay_signal_2026-11-17/`). The year-by-year choice made Sharpe 0.36, against 0.78 for the
+      frozen spec, and lost at double costs, so the frozen spec stays.
+    - In both, results swing with the path: a cost change alone moves the latch and stop timing.
 - **Research discipline in code:**
   - `research/trials.jsonl` (`lab/trials.py`) records every configuration evaluated on real
     data; gates use the deflated Sharpe over the whole family. The directional family holds 83 trials.

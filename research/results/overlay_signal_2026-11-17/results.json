@@ -1,0 +1,2584 @@
+{
+ "risk_setting": "2x stop0.045@10x pause latch0.03/0.12",
+ "frozen": "lb10-20-30-60-90-120-180 tv0.3 band0.1 sign",
+ "capital_usdt": 150.0,
+ "window": "2021-01-10..2025-11-16 (development only)",
+ "settings": {
+  "lb10-20-30-60-90-120-180 tv0.2 band0.05 sign": {
+   "setting": {
+    "lookbacks": [
+     10,
+     20,
+     30,
+     60,
+     90,
+     120,
+     180
+    ],
+    "target_vol": 0.2,
+    "band": 0.05,
+    "signal": "sign"
+   },
+   "whole": {
+    "sharpe": 0.4480986361140001,
+    "max_drawdown": 0.2001555887072467,
+    "total_return": 0.3005393850439868,
+    "loss_stop_share": 0.001189767995240928
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 66,
+     "stops": 4,
+     "liquidations": 0,
+     "entries": 31
+    },
+    "ETHUSDT": {
+     "fills": 308,
+     "stops": 57,
+     "liquidations": 0,
+     "entries": 125
+    },
+    "latch_trips": 10
+   }
+  },
+  "lb10-20-30-60-90-120-180 tv0.2 band0.05 scaled": {
+   "setting": {
+    "lookbacks": [
+     10,
+     20,
+     30,
+     60,
+     90,
+     120,
+     180
+    ],
+    "target_vol": 0.2,
+    "band": 0.05,
+    "signal": "scaled"
+   },
+   "whole": {
+    "sharpe": 0.2822542840886129,
+    "max_drawdown": 0.14873991166028722,
+    "total_return": 0.11686714500694029,
+    "loss_stop_share": 0.0
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 4,
+     "stops": 1,
+     "liquidations": 0,
+     "entries": 2
+    },
+    "ETHUSDT": {
+     "fills": 175,
+     "stops": 40,
+     "liquidations": 0,
+     "entries": 63
+    },
+    "latch_trips": 5
+   }
+  },
+  "lb10-20-30-60-90-120-180 tv0.2 band0.1 sign": {
+   "setting": {
+    "lookbacks": [
+     10,
+     20,
+     30,
+     60,
+     90,
+     120,
+     180
+    ],
+    "target_vol": 0.2,
+    "band": 0.1,
+    "signal": "sign"
+   },
+   "whole": {
+    "sharpe": 0.2974022660030571,
+    "max_drawdown": 0.19029602635696163,
+    "total_return": 0.16368126940554073,
+    "loss_stop_share": 0.0
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 66,
+     "stops": 4,
+     "liquidations": 0,
+     "entries": 31
+    },
+    "ETHUSDT": {
+     "fills": 245,
+     "stops": 55,
+     "liquidations": 0,
+     "entries": 101
+    },
+    "latch_trips": 11
+   }
+  },
+  "lb10-20-30-60-90-120-180 tv0.2 band0.1 scaled": {
+   "setting": {
+    "lookbacks": [
+     10,
+     20,
+     30,
+     60,
+     90,
+     120,
+     180
+    ],
+    "target_vol": 0.2,
+    "band": 0.1,
+    "signal": "scaled"
+   },
+   "whole": {
+    "sharpe": 0.20055876851808943,
+    "max_drawdown": 0.14168826284703062,
+    "total_return": 0.07416006565421052,
+    "loss_stop_share": 0.0
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 4,
+     "stops": 1,
+     "liquidations": 0,
+     "entries": 2
+    },
+    "ETHUSDT": {
+     "fills": 140,
+     "stops": 39,
+     "liquidations": 0,
+     "entries": 57
+    },
+    "latch_trips": 4
+   }
+  },
+  "lb10-20-30-60-90-120-180 tv0.2 band0.2 sign": {
+   "setting": {
+    "lookbacks": [
+     10,
+     20,
+     30,
+     60,
+     90,
+     120,
+     180
+    ],
+    "target_vol": 0.2,
+    "band": 0.2,
+    "signal": "sign"
+   },
+   "whole": {
+    "sharpe": 0.30691334628863326,
+    "max_drawdown": 0.1884413028754668,
+    "total_return": 0.17682214919618033,
+    "loss_stop_share": 0.000594883997620464
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 66,
+     "stops": 4,
+     "liquidations": 0,
+     "entries": 31
+    },
+    "ETHUSDT": {
+     "fills": 240,
+     "stops": 61,
+     "liquidations": 0,
+     "entries": 111
+    },
+    "latch_trips": 12
+   }
+  },
+  "lb10-20-30-60-90-120-180 tv0.2 band0.2 scaled": {
+   "setting": {
+    "lookbacks": [
+     10,
+     20,
+     30,
+     60,
+     90,
+     120,
+     180
+    ],
+    "target_vol": 0.2,
+    "band": 0.2,
+    "signal": "scaled"
+   },
+   "whole": {
+    "sharpe": 0.27455791795656664,
+    "max_drawdown": 0.15186455348751682,
+    "total_return": 0.12027040965378455,
+    "loss_stop_share": 0.0
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 4,
+     "stops": 1,
+     "liquidations": 0,
+     "entries": 2
+    },
+    "ETHUSDT": {
+     "fills": 122,
+     "stops": 38,
+     "liquidations": 0,
+     "entries": 58
+    },
+    "latch_trips": 4
+   }
+  },
+  "lb10-20-30-60-90-120-180 tv0.3 band0.05 sign": {
+   "setting": {
+    "lookbacks": [
+     10,
+     20,
+     30,
+     60,
+     90,
+     120,
+     180
+    ],
+    "target_vol": 0.3,
+    "band": 0.05,
+    "signal": "sign"
+   },
+   "whole": {
+    "sharpe": 0.5467380675874473,
+    "max_drawdown": 0.2637212961199318,
+    "total_return": 0.6854142551016325,
+    "loss_stop_share": 0.021415823914336704
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 223,
+     "stops": 17,
+     "liquidations": 0,
+     "entries": 107
+    },
+    "ETHUSDT": {
+     "fills": 488,
+     "stops": 85,
+     "liquidations": 0,
+     "entries": 236
+    },
+    "latch_trips": 64
+   }
+  },
+  "lb10-20-30-60-90-120-180 tv0.3 band0.05 scaled": {
+   "setting": {
+    "lookbacks": [
+     10,
+     20,
+     30,
+     60,
+     90,
+     120,
+     180
+    ],
+    "target_vol": 0.3,
+    "band": 0.05,
+    "signal": "scaled"
+   },
+   "whole": {
+    "sharpe": 0.3761422434718736,
+    "max_drawdown": 0.20488625461318932,
+    "total_return": 0.2870607964820169,
+    "loss_stop_share": 0.001784651992861392
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 114,
+     "stops": 8,
+     "liquidations": 0,
+     "entries": 54
+    },
+    "ETHUSDT": {
+     "fills": 306,
+     "stops": 62,
+     "liquidations": 0,
+     "entries": 127
+    },
+    "latch_trips": 26
+   }
+  },
+  "lb10-20-30-60-90-120-180 tv0.3 band0.1 sign": {
+   "setting": {
+    "lookbacks": [
+     10,
+     20,
+     30,
+     60,
+     90,
+     120,
+     180
+    ],
+    "target_vol": 0.3,
+    "band": 0.1,
+    "signal": "sign"
+   },
+   "whole": {
+    "sharpe": 0.6263097560076983,
+    "max_drawdown": 0.2549917316659084,
+    "total_return": 0.878116680911482,
+    "loss_stop_share": 0.02676977989292088
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 224,
+     "stops": 17,
+     "liquidations": 0,
+     "entries": 109
+    },
+    "ETHUSDT": {
+     "fills": 480,
+     "stops": 88,
+     "liquidations": 0,
+     "entries": 234
+    },
+    "latch_trips": 58
+   }
+  },
+  "lb10-20-30-60-90-120-180 tv0.3 band0.1 scaled": {
+   "setting": {
+    "lookbacks": [
+     10,
+     20,
+     30,
+     60,
+     90,
+     120,
+     180
+    ],
+    "target_vol": 0.3,
+    "band": 0.1,
+    "signal": "scaled"
+   },
+   "whole": {
+    "sharpe": 0.3906336484111843,
+    "max_drawdown": 0.20917462602888004,
+    "total_return": 0.3074274035736031,
+    "loss_stop_share": 0.002379535990481856
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 120,
+     "stops": 9,
+     "liquidations": 0,
+     "entries": 58
+    },
+    "ETHUSDT": {
+     "fills": 298,
+     "stops": 74,
+     "liquidations": 0,
+     "entries": 138
+    },
+    "latch_trips": 30
+   }
+  },
+  "lb10-20-30-60-90-120-180 tv0.3 band0.2 sign": {
+   "setting": {
+    "lookbacks": [
+     10,
+     20,
+     30,
+     60,
+     90,
+     120,
+     180
+    ],
+    "target_vol": 0.3,
+    "band": 0.2,
+    "signal": "sign"
+   },
+   "whole": {
+    "sharpe": 0.6035689105150615,
+    "max_drawdown": 0.2581638190302291,
+    "total_return": 0.8268346202792363,
+    "loss_stop_share": 0.022010707911957167
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 231,
+     "stops": 17,
+     "liquidations": 0,
+     "entries": 113
+    },
+    "ETHUSDT": {
+     "fills": 452,
+     "stops": 88,
+     "liquidations": 0,
+     "entries": 224
+    },
+    "latch_trips": 60
+   }
+  },
+  "lb10-20-30-60-90-120-180 tv0.3 band0.2 scaled": {
+   "setting": {
+    "lookbacks": [
+     10,
+     20,
+     30,
+     60,
+     90,
+     120,
+     180
+    ],
+    "target_vol": 0.3,
+    "band": 0.2,
+    "signal": "scaled"
+   },
+   "whole": {
+    "sharpe": 0.34141116024879137,
+    "max_drawdown": 0.2215068226802711,
+    "total_return": 0.2554905495109341,
+    "loss_stop_share": 0.003569303985722784
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 120,
+     "stops": 8,
+     "liquidations": 0,
+     "entries": 59
+    },
+    "ETHUSDT": {
+     "fills": 254,
+     "stops": 71,
+     "liquidations": 0,
+     "entries": 131
+    },
+    "latch_trips": 32
+   }
+  },
+  "lb10-20-30-60-90-120-180 tv0.45 band0.05 sign": {
+   "setting": {
+    "lookbacks": [
+     10,
+     20,
+     30,
+     60,
+     90,
+     120,
+     180
+    ],
+    "target_vol": 0.45,
+    "band": 0.05,
+    "signal": "sign"
+   },
+   "whole": {
+    "sharpe": 0.4770200204966959,
+    "max_drawdown": 0.47997972329627914,
+    "total_return": 0.716451740737122,
+    "loss_stop_share": 0.15823914336704342
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 321,
+     "stops": 25,
+     "liquidations": 0,
+     "entries": 158
+    },
+    "ETHUSDT": {
+     "fills": 785,
+     "stops": 108,
+     "liquidations": 0,
+     "entries": 417
+    },
+    "latch_trips": 153
+   }
+  },
+  "lb10-20-30-60-90-120-180 tv0.45 band0.05 scaled": {
+   "setting": {
+    "lookbacks": [
+     10,
+     20,
+     30,
+     60,
+     90,
+     120,
+     180
+    ],
+    "target_vol": 0.45,
+    "band": 0.05,
+    "signal": "scaled"
+   },
+   "whole": {
+    "sharpe": 0.15785909025842232,
+    "max_drawdown": 0.3532900412952732,
+    "total_return": 0.017028033186413882,
+    "loss_stop_share": 0.05651397977394408
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 141,
+     "stops": 12,
+     "liquidations": 0,
+     "entries": 68
+    },
+    "ETHUSDT": {
+     "fills": 553,
+     "stops": 83,
+     "liquidations": 0,
+     "entries": 250
+    },
+    "latch_trips": 78
+   }
+  },
+  "lb10-20-30-60-90-120-180 tv0.45 band0.1 sign": {
+   "setting": {
+    "lookbacks": [
+     10,
+     20,
+     30,
+     60,
+     90,
+     120,
+     180
+    ],
+    "target_vol": 0.45,
+    "band": 0.1,
+    "signal": "sign"
+   },
+   "whole": {
+    "sharpe": 0.44235979592378966,
+    "max_drawdown": 0.4724674176603484,
+    "total_return": 0.6067758672588257,
+    "loss_stop_share": 0.15466983938132065
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 322,
+     "stops": 25,
+     "liquidations": 0,
+     "entries": 158
+    },
+    "ETHUSDT": {
+     "fills": 762,
+     "stops": 105,
+     "liquidations": 0,
+     "entries": 410
+    },
+    "latch_trips": 155
+   }
+  },
+  "lb10-20-30-60-90-120-180 tv0.45 band0.1 scaled": {
+   "setting": {
+    "lookbacks": [
+     10,
+     20,
+     30,
+     60,
+     90,
+     120,
+     180
+    ],
+    "target_vol": 0.45,
+    "band": 0.1,
+    "signal": "scaled"
+   },
+   "whole": {
+    "sharpe": 0.16981672118802857,
+    "max_drawdown": 0.35346515997968164,
+    "total_return": 0.032463612780787576,
+    "loss_stop_share": 0.06484235574063058
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 144,
+     "stops": 12,
+     "liquidations": 0,
+     "entries": 70
+    },
+    "ETHUSDT": {
+     "fills": 495,
+     "stops": 81,
+     "liquidations": 0,
+     "entries": 247
+    },
+    "latch_trips": 80
+   }
+  },
+  "lb10-20-30-60-90-120-180 tv0.45 band0.2 sign": {
+   "setting": {
+    "lookbacks": [
+     10,
+     20,
+     30,
+     60,
+     90,
+     120,
+     180
+    ],
+    "target_vol": 0.45,
+    "band": 0.2,
+    "signal": "sign"
+   },
+   "whole": {
+    "sharpe": 0.46881633417595914,
+    "max_drawdown": 0.46134142473409157,
+    "total_return": 0.6898843996981927,
+    "loss_stop_share": 0.16061867935752527
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 308,
+     "stops": 26,
+     "liquidations": 0,
+     "entries": 151
+    },
+    "ETHUSDT": {
+     "fills": 668,
+     "stops": 88,
+     "liquidations": 0,
+     "entries": 353
+    },
+    "latch_trips": 155
+   }
+  },
+  "lb10-20-30-60-90-120-180 tv0.45 band0.2 scaled": {
+   "setting": {
+    "lookbacks": [
+     10,
+     20,
+     30,
+     60,
+     90,
+     120,
+     180
+    ],
+    "target_vol": 0.45,
+    "band": 0.2,
+    "signal": "scaled"
+   },
+   "whole": {
+    "sharpe": 0.11567665809416297,
+    "max_drawdown": 0.3739279139352272,
+    "total_return": -0.04682720951718489,
+    "loss_stop_share": 0.06543723973825104
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 98,
+     "stops": 12,
+     "liquidations": 0,
+     "entries": 47
+    },
+    "ETHUSDT": {
+     "fills": 441,
+     "stops": 83,
+     "liquidations": 0,
+     "entries": 241
+    },
+    "latch_trips": 84
+   }
+  },
+  "lb20-60-120 tv0.2 band0.05 sign": {
+   "setting": {
+    "lookbacks": [
+     20,
+     60,
+     120
+    ],
+    "target_vol": 0.2,
+    "band": 0.05,
+    "signal": "sign"
+   },
+   "whole": {
+    "sharpe": 0.4435809568918888,
+    "max_drawdown": 0.2399489764633208,
+    "total_return": 0.3454782434865229,
+    "loss_stop_share": 0.00594883997620464
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 112,
+     "stops": 10,
+     "liquidations": 0,
+     "entries": 54
+    },
+    "ETHUSDT": {
+     "fills": 314,
+     "stops": 61,
+     "liquidations": 0,
+     "entries": 144
+    },
+    "latch_trips": 22
+   }
+  },
+  "lb20-60-120 tv0.2 band0.05 scaled": {
+   "setting": {
+    "lookbacks": [
+     20,
+     60,
+     120
+    ],
+    "target_vol": 0.2,
+    "band": 0.05,
+    "signal": "scaled"
+   },
+   "whole": {
+    "sharpe": 0.010216234405030972,
+    "max_drawdown": 0.15562394354155673,
+    "total_return": -0.021613827778818706,
+    "loss_stop_share": 0.0
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 31,
+     "stops": 3,
+     "liquidations": 0,
+     "entries": 14
+    },
+    "ETHUSDT": {
+     "fills": 178,
+     "stops": 52,
+     "liquidations": 0,
+     "entries": 65
+    },
+    "latch_trips": 5
+   }
+  },
+  "lb20-60-120 tv0.2 band0.1 sign": {
+   "setting": {
+    "lookbacks": [
+     20,
+     60,
+     120
+    ],
+    "target_vol": 0.2,
+    "band": 0.1,
+    "signal": "sign"
+   },
+   "whole": {
+    "sharpe": 0.23345029285332677,
+    "max_drawdown": 0.19187704688760254,
+    "total_return": 0.12480329891241237,
+    "loss_stop_share": 0.002379535990481856
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 121,
+     "stops": 11,
+     "liquidations": 0,
+     "entries": 59
+    },
+    "ETHUSDT": {
+     "fills": 240,
+     "stops": 65,
+     "liquidations": 0,
+     "entries": 107
+    },
+    "latch_trips": 18
+   }
+  },
+  "lb20-60-120 tv0.2 band0.1 scaled": {
+   "setting": {
+    "lookbacks": [
+     20,
+     60,
+     120
+    ],
+    "target_vol": 0.2,
+    "band": 0.1,
+    "signal": "scaled"
+   },
+   "whole": {
+    "sharpe": 0.00958580636531104,
+    "max_drawdown": 0.16622971993620805,
+    "total_return": -0.023115126361121008,
+    "loss_stop_share": 0.0
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 27,
+     "stops": 3,
+     "liquidations": 0,
+     "entries": 12
+    },
+    "ETHUSDT": {
+     "fills": 146,
+     "stops": 49,
+     "liquidations": 0,
+     "entries": 62
+    },
+    "latch_trips": 6
+   }
+  },
+  "lb20-60-120 tv0.2 band0.2 sign": {
+   "setting": {
+    "lookbacks": [
+     20,
+     60,
+     120
+    ],
+    "target_vol": 0.2,
+    "band": 0.2,
+    "signal": "sign"
+   },
+   "whole": {
+    "sharpe": 0.24883234382600009,
+    "max_drawdown": 0.2015894878109833,
+    "total_return": 0.14091160952750137,
+    "loss_stop_share": 0.007733491969066032
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 123,
+     "stops": 14,
+     "liquidations": 0,
+     "entries": 60
+    },
+    "ETHUSDT": {
+     "fills": 248,
+     "stops": 67,
+     "liquidations": 0,
+     "entries": 113
+    },
+    "latch_trips": 20
+   }
+  },
+  "lb20-60-120 tv0.2 band0.2 scaled": {
+   "setting": {
+    "lookbacks": [
+     20,
+     60,
+     120
+    ],
+    "target_vol": 0.2,
+    "band": 0.2,
+    "signal": "scaled"
+   },
+   "whole": {
+    "sharpe": 0.5073781902175998,
+    "max_drawdown": 0.16831013568884756,
+    "total_return": 0.3284310209734933,
+    "loss_stop_share": 0.000594883997620464
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 46,
+     "stops": 4,
+     "liquidations": 0,
+     "entries": 22
+    },
+    "ETHUSDT": {
+     "fills": 148,
+     "stops": 46,
+     "liquidations": 0,
+     "entries": 71
+    },
+    "latch_trips": 10
+   }
+  },
+  "lb20-60-120 tv0.3 band0.05 sign": {
+   "setting": {
+    "lookbacks": [
+     20,
+     60,
+     120
+    ],
+    "target_vol": 0.3,
+    "band": 0.05,
+    "signal": "sign"
+   },
+   "whole": {
+    "sharpe": 0.6316990295387005,
+    "max_drawdown": 0.32809874730666844,
+    "total_return": 0.9601279833622494,
+    "loss_stop_share": 0.05591909577632362
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 277,
+     "stops": 27,
+     "liquidations": 0,
+     "entries": 138
+    },
+    "ETHUSDT": {
+     "fills": 466,
+     "stops": 91,
+     "liquidations": 0,
+     "entries": 228
+    },
+    "latch_trips": 68
+   }
+  },
+  "lb20-60-120 tv0.3 band0.05 scaled": {
+   "setting": {
+    "lookbacks": [
+     20,
+     60,
+     120
+    ],
+    "target_vol": 0.3,
+    "band": 0.05,
+    "signal": "scaled"
+   },
+   "whole": {
+    "sharpe": 0.2636992186265113,
+    "max_drawdown": 0.2380886582501529,
+    "total_return": 0.17078130761824006,
+    "loss_stop_share": 0.00594883997620464
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 131,
+     "stops": 14,
+     "liquidations": 0,
+     "entries": 61
+    },
+    "ETHUSDT": {
+     "fills": 326,
+     "stops": 74,
+     "liquidations": 0,
+     "entries": 132
+    },
+    "latch_trips": 33
+   }
+  },
+  "lb20-60-120 tv0.3 band0.1 sign": {
+   "setting": {
+    "lookbacks": [
+     20,
+     60,
+     120
+    ],
+    "target_vol": 0.3,
+    "band": 0.1,
+    "signal": "sign"
+   },
+   "whole": {
+    "sharpe": 0.6606718101877208,
+    "max_drawdown": 0.323381946364926,
+    "total_return": 1.0428877967331491,
+    "loss_stop_share": 0.055324211778703156
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 271,
+     "stops": 27,
+     "liquidations": 0,
+     "entries": 136
+    },
+    "ETHUSDT": {
+     "fills": 463,
+     "stops": 90,
+     "liquidations": 0,
+     "entries": 233
+    },
+    "latch_trips": 69
+   }
+  },
+  "lb20-60-120 tv0.3 band0.1 scaled": {
+   "setting": {
+    "lookbacks": [
+     20,
+     60,
+     120
+    ],
+    "target_vol": 0.3,
+    "band": 0.1,
+    "signal": "scaled"
+   },
+   "whole": {
+    "sharpe": 0.3639854544335145,
+    "max_drawdown": 0.25256510280972744,
+    "total_return": 0.2926367183124474,
+    "loss_stop_share": 0.015466983938132063
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 127,
+     "stops": 13,
+     "liquidations": 0,
+     "entries": 61
+    },
+    "ETHUSDT": {
+     "fills": 324,
+     "stops": 77,
+     "liquidations": 0,
+     "entries": 149
+    },
+    "latch_trips": 37
+   }
+  },
+  "lb20-60-120 tv0.3 band0.2 sign": {
+   "setting": {
+    "lookbacks": [
+     20,
+     60,
+     120
+    ],
+    "target_vol": 0.3,
+    "band": 0.2,
+    "signal": "sign"
+   },
+   "whole": {
+    "sharpe": 0.6121009488415048,
+    "max_drawdown": 0.3285763918645731,
+    "total_return": 0.9283188371783382,
+    "loss_stop_share": 0.0529446757882213
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 296,
+     "stops": 28,
+     "liquidations": 0,
+     "entries": 151
+    },
+    "ETHUSDT": {
+     "fills": 467,
+     "stops": 93,
+     "liquidations": 0,
+     "entries": 238
+    },
+    "latch_trips": 75
+   }
+  },
+  "lb20-60-120 tv0.3 band0.2 scaled": {
+   "setting": {
+    "lookbacks": [
+     20,
+     60,
+     120
+    ],
+    "target_vol": 0.3,
+    "band": 0.2,
+    "signal": "scaled"
+   },
+   "whole": {
+    "sharpe": 0.32332122814726394,
+    "max_drawdown": 0.2987433082356026,
+    "total_return": 0.24882637969948518,
+    "loss_stop_share": 0.013087447947650209
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 124,
+     "stops": 13,
+     "liquidations": 0,
+     "entries": 61
+    },
+    "ETHUSDT": {
+     "fills": 294,
+     "stops": 77,
+     "liquidations": 0,
+     "entries": 149
+    },
+    "latch_trips": 42
+   }
+  },
+  "lb20-60-120 tv0.45 band0.05 sign": {
+   "setting": {
+    "lookbacks": [
+     20,
+     60,
+     120
+    ],
+    "target_vol": 0.45,
+    "band": 0.05,
+    "signal": "sign"
+   },
+   "whole": {
+    "sharpe": 0.34722561861205076,
+    "max_drawdown": 0.44125756699949226,
+    "total_return": 0.3371862566855288,
+    "loss_stop_share": 0.1748958953004164
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 388,
+     "stops": 27,
+     "liquidations": 0,
+     "entries": 195
+    },
+    "ETHUSDT": {
+     "fills": 663,
+     "stops": 94,
+     "liquidations": 0,
+     "entries": 343
+    },
+    "latch_trips": 162
+   }
+  },
+  "lb20-60-120 tv0.45 band0.05 scaled": {
+   "setting": {
+    "lookbacks": [
+     20,
+     60,
+     120
+    ],
+    "target_vol": 0.45,
+    "band": 0.05,
+    "signal": "scaled"
+   },
+   "whole": {
+    "sharpe": 0.14237544279279565,
+    "max_drawdown": 0.4632425342952229,
+    "total_return": -0.008593504127993312,
+    "loss_stop_share": 0.10648423557406306
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 166,
+     "stops": 19,
+     "liquidations": 0,
+     "entries": 79
+    },
+    "ETHUSDT": {
+     "fills": 568,
+     "stops": 89,
+     "liquidations": 0,
+     "entries": 260
+    },
+    "latch_trips": 94
+   }
+  },
+  "lb20-60-120 tv0.45 band0.1 sign": {
+   "setting": {
+    "lookbacks": [
+     20,
+     60,
+     120
+    ],
+    "target_vol": 0.45,
+    "band": 0.1,
+    "signal": "sign"
+   },
+   "whole": {
+    "sharpe": 0.3291395034784911,
+    "max_drawdown": 0.44287946374693865,
+    "total_return": 0.2914676542856056,
+    "loss_stop_share": 0.17311124330755503
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 382,
+     "stops": 28,
+     "liquidations": 0,
+     "entries": 192
+    },
+    "ETHUSDT": {
+     "fills": 654,
+     "stops": 96,
+     "liquidations": 0,
+     "entries": 346
+    },
+    "latch_trips": 162
+   }
+  },
+  "lb20-60-120 tv0.45 band0.1 scaled": {
+   "setting": {
+    "lookbacks": [
+     20,
+     60,
+     120
+    ],
+    "target_vol": 0.45,
+    "band": 0.1,
+    "signal": "scaled"
+   },
+   "whole": {
+    "sharpe": 0.16040159919310976,
+    "max_drawdown": 0.4519192586532039,
+    "total_return": 0.016401143387918315,
+    "loss_stop_share": 0.10291493158834028
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 157,
+     "stops": 20,
+     "liquidations": 0,
+     "entries": 75
+    },
+    "ETHUSDT": {
+     "fills": 526,
+     "stops": 91,
+     "liquidations": 0,
+     "entries": 258
+    },
+    "latch_trips": 90
+   }
+  },
+  "lb20-60-120 tv0.45 band0.2 sign": {
+   "setting": {
+    "lookbacks": [
+     20,
+     60,
+     120
+    ],
+    "target_vol": 0.45,
+    "band": 0.2,
+    "signal": "sign"
+   },
+   "whole": {
+    "sharpe": 0.34710418147668,
+    "max_drawdown": 0.4347525358736547,
+    "total_return": 0.3371767528223446,
+    "loss_stop_share": 0.17430101130279596
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 385,
+     "stops": 26,
+     "liquidations": 0,
+     "entries": 193
+    },
+    "ETHUSDT": {
+     "fills": 635,
+     "stops": 91,
+     "liquidations": 0,
+     "entries": 335
+    },
+    "latch_trips": 162
+   }
+  },
+  "lb20-60-120 tv0.45 band0.2 scaled": {
+   "setting": {
+    "lookbacks": [
+     20,
+     60,
+     120
+    ],
+    "target_vol": 0.45,
+    "band": 0.2,
+    "signal": "scaled"
+   },
+   "whole": {
+    "sharpe": 0.08791041899237267,
+    "max_drawdown": 0.4417843785991026,
+    "total_return": -0.1015394585996342,
+    "loss_stop_share": 0.11362284354550863
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 164,
+     "stops": 19,
+     "liquidations": 0,
+     "entries": 80
+    },
+    "ETHUSDT": {
+     "fills": 485,
+     "stops": 94,
+     "liquidations": 0,
+     "entries": 260
+    },
+    "latch_trips": 101
+   }
+  },
+  "lb30-90-180 tv0.2 band0.05 sign": {
+   "setting": {
+    "lookbacks": [
+     30,
+     90,
+     180
+    ],
+    "target_vol": 0.2,
+    "band": 0.05,
+    "signal": "sign"
+   },
+   "whole": {
+    "sharpe": 0.32216875193787287,
+    "max_drawdown": 0.2224709382248119,
+    "total_return": 0.21498141652518488,
+    "loss_stop_share": 0.002379535990481856
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 59,
+     "stops": 7,
+     "liquidations": 0,
+     "entries": 28
+    },
+    "ETHUSDT": {
+     "fills": 298,
+     "stops": 62,
+     "liquidations": 0,
+     "entries": 137
+    },
+    "latch_trips": 20
+   }
+  },
+  "lb30-90-180 tv0.2 band0.05 scaled": {
+   "setting": {
+    "lookbacks": [
+     30,
+     90,
+     180
+    ],
+    "target_vol": 0.2,
+    "band": 0.05,
+    "signal": "scaled"
+   },
+   "whole": {
+    "sharpe": 0.42338009425716183,
+    "max_drawdown": 0.1438344147604952,
+    "total_return": 0.2134631030933145,
+    "loss_stop_share": 0.0
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 11,
+     "stops": 3,
+     "liquidations": 0,
+     "entries": 5
+    },
+    "ETHUSDT": {
+     "fills": 169,
+     "stops": 37,
+     "liquidations": 0,
+     "entries": 63
+    },
+    "latch_trips": 6
+   }
+  },
+  "lb30-90-180 tv0.2 band0.1 sign": {
+   "setting": {
+    "lookbacks": [
+     30,
+     90,
+     180
+    ],
+    "target_vol": 0.2,
+    "band": 0.1,
+    "signal": "sign"
+   },
+   "whole": {
+    "sharpe": 0.30102622082248226,
+    "max_drawdown": 0.231802168415829,
+    "total_return": 0.19035065573772703,
+    "loss_stop_share": 0.001189767995240928
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 75,
+     "stops": 7,
+     "liquidations": 0,
+     "entries": 36
+    },
+    "ETHUSDT": {
+     "fills": 237,
+     "stops": 63,
+     "liquidations": 0,
+     "entries": 111
+    },
+    "latch_trips": 18
+   }
+  },
+  "lb30-90-180 tv0.2 band0.1 scaled": {
+   "setting": {
+    "lookbacks": [
+     30,
+     90,
+     180
+    ],
+    "target_vol": 0.2,
+    "band": 0.1,
+    "signal": "scaled"
+   },
+   "whole": {
+    "sharpe": 0.3402145475632503,
+    "max_drawdown": 0.14123712526278798,
+    "total_return": 0.15671772662724792,
+    "loss_stop_share": 0.0
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 11,
+     "stops": 3,
+     "liquidations": 0,
+     "entries": 5
+    },
+    "ETHUSDT": {
+     "fills": 131,
+     "stops": 33,
+     "liquidations": 0,
+     "entries": 55
+    },
+    "latch_trips": 7
+   }
+  },
+  "lb30-90-180 tv0.2 band0.2 sign": {
+   "setting": {
+    "lookbacks": [
+     30,
+     90,
+     180
+    ],
+    "target_vol": 0.2,
+    "band": 0.2,
+    "signal": "sign"
+   },
+   "whole": {
+    "sharpe": 0.22342111647919413,
+    "max_drawdown": 0.22393224732097639,
+    "total_return": 0.11775803267132567,
+    "loss_stop_share": 0.002379535990481856
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 66,
+     "stops": 7,
+     "liquidations": 0,
+     "entries": 32
+    },
+    "ETHUSDT": {
+     "fills": 243,
+     "stops": 64,
+     "liquidations": 0,
+     "entries": 117
+    },
+    "latch_trips": 19
+   }
+  },
+  "lb30-90-180 tv0.2 band0.2 scaled": {
+   "setting": {
+    "lookbacks": [
+     30,
+     90,
+     180
+    ],
+    "target_vol": 0.2,
+    "band": 0.2,
+    "signal": "scaled"
+   },
+   "whole": {
+    "sharpe": 0.2663914820279692,
+    "max_drawdown": 0.1492054450937611,
+    "total_return": 0.11740423946873868,
+    "loss_stop_share": 0.0
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 11,
+     "stops": 3,
+     "liquidations": 0,
+     "entries": 5
+    },
+    "ETHUSDT": {
+     "fills": 113,
+     "stops": 32,
+     "liquidations": 0,
+     "entries": 54
+    },
+    "latch_trips": 8
+   }
+  },
+  "lb30-90-180 tv0.3 band0.05 sign": {
+   "setting": {
+    "lookbacks": [
+     30,
+     90,
+     180
+    ],
+    "target_vol": 0.3,
+    "band": 0.05,
+    "signal": "sign"
+   },
+   "whole": {
+    "sharpe": 0.29463257856140157,
+    "max_drawdown": 0.34524130376470263,
+    "total_return": 0.23656352169939487,
+    "loss_stop_share": 0.06305770374776919
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 200,
+     "stops": 19,
+     "liquidations": 0,
+     "entries": 98
+    },
+    "ETHUSDT": {
+     "fills": 456,
+     "stops": 86,
+     "liquidations": 0,
+     "entries": 222
+    },
+    "latch_trips": 83
+   }
+  },
+  "lb30-90-180 tv0.3 band0.05 scaled": {
+   "setting": {
+    "lookbacks": [
+     30,
+     90,
+     180
+    ],
+    "target_vol": 0.3,
+    "band": 0.05,
+    "signal": "scaled"
+   },
+   "whole": {
+    "sharpe": 0.1670663319789696,
+    "max_drawdown": 0.2796227465726886,
+    "total_return": 0.06822963569721052,
+    "loss_stop_share": 0.004164187983343248
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 78,
+     "stops": 6,
+     "liquidations": 0,
+     "entries": 37
+    },
+    "ETHUSDT": {
+     "fills": 317,
+     "stops": 74,
+     "liquidations": 0,
+     "entries": 131
+    },
+    "latch_trips": 33
+   }
+  },
+  "lb30-90-180 tv0.3 band0.1 sign": {
+   "setting": {
+    "lookbacks": [
+     30,
+     90,
+     180
+    ],
+    "target_vol": 0.3,
+    "band": 0.1,
+    "signal": "sign"
+   },
+   "whole": {
+    "sharpe": 0.29167422472751675,
+    "max_drawdown": 0.3582664703986368,
+    "total_return": 0.23115074074962116,
+    "loss_stop_share": 0.07079119571683522
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 214,
+     "stops": 20,
+     "liquidations": 0,
+     "entries": 105
+    },
+    "ETHUSDT": {
+     "fills": 447,
+     "stops": 89,
+     "liquidations": 0,
+     "entries": 224
+    },
+    "latch_trips": 85
+   }
+  },
+  "lb30-90-180 tv0.3 band0.1 scaled": {
+   "setting": {
+    "lookbacks": [
+     30,
+     90,
+     180
+    ],
+    "target_vol": 0.3,
+    "band": 0.1,
+    "signal": "scaled"
+   },
+   "whole": {
+    "sharpe": -0.06950590879314995,
+    "max_drawdown": 0.3235521921968204,
+    "total_return": -0.13120888527422792,
+    "loss_stop_share": 0.010113027959547887
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 37,
+     "stops": 6,
+     "liquidations": 0,
+     "entries": 17
+    },
+    "ETHUSDT": {
+     "fills": 264,
+     "stops": 66,
+     "liquidations": 0,
+     "entries": 120
+    },
+    "latch_trips": 28
+   }
+  },
+  "lb30-90-180 tv0.3 band0.2 sign": {
+   "setting": {
+    "lookbacks": [
+     30,
+     90,
+     180
+    ],
+    "target_vol": 0.3,
+    "band": 0.2,
+    "signal": "sign"
+   },
+   "whole": {
+    "sharpe": 0.28673670023673065,
+    "max_drawdown": 0.3534132443372958,
+    "total_return": 0.22255350467049673,
+    "loss_stop_share": 0.06900654372397383
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 203,
+     "stops": 19,
+     "liquidations": 0,
+     "entries": 100
+    },
+    "ETHUSDT": {
+     "fills": 447,
+     "stops": 91,
+     "liquidations": 0,
+     "entries": 226
+    },
+    "latch_trips": 85
+   }
+  },
+  "lb30-90-180 tv0.3 band0.2 scaled": {
+   "setting": {
+    "lookbacks": [
+     30,
+     90,
+     180
+    ],
+    "target_vol": 0.3,
+    "band": 0.2,
+    "signal": "scaled"
+   },
+   "whole": {
+    "sharpe": 0.06026965201726648,
+    "max_drawdown": 0.2994285611344014,
+    "total_return": -0.035434694289509294,
+    "loss_stop_share": 0.011302795954788817
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 38,
+     "stops": 5,
+     "liquidations": 0,
+     "entries": 18
+    },
+    "ETHUSDT": {
+     "fills": 238,
+     "stops": 67,
+     "liquidations": 0,
+     "entries": 122
+    },
+    "latch_trips": 31
+   }
+  },
+  "lb30-90-180 tv0.45 band0.05 sign": {
+   "setting": {
+    "lookbacks": [
+     30,
+     90,
+     180
+    ],
+    "target_vol": 0.45,
+    "band": 0.05,
+    "signal": "sign"
+   },
+   "whole": {
+    "sharpe": 0.07851668017894502,
+    "max_drawdown": 0.6891186057095657,
+    "total_return": -0.22997655034090625,
+    "loss_stop_share": 0.24033313503866746
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 131,
+     "stops": 14,
+     "liquidations": 0,
+     "entries": 65
+    },
+    "ETHUSDT": {
+     "fills": 640,
+     "stops": 93,
+     "liquidations": 0,
+     "entries": 325
+    },
+    "latch_trips": 179
+   }
+  },
+  "lb30-90-180 tv0.45 band0.05 scaled": {
+   "setting": {
+    "lookbacks": [
+     30,
+     90,
+     180
+    ],
+    "target_vol": 0.45,
+    "band": 0.05,
+    "signal": "scaled"
+   },
+   "whole": {
+    "sharpe": 0.12834989866865268,
+    "max_drawdown": 0.43644868905067524,
+    "total_return": -0.03129981173769647,
+    "loss_stop_share": 0.05591909577632362
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 144,
+     "stops": 18,
+     "liquidations": 0,
+     "entries": 70
+    },
+    "ETHUSDT": {
+     "fills": 621,
+     "stops": 99,
+     "liquidations": 0,
+     "entries": 287
+    },
+    "latch_trips": 94
+   }
+  },
+  "lb30-90-180 tv0.45 band0.1 sign": {
+   "setting": {
+    "lookbacks": [
+     30,
+     90,
+     180
+    ],
+    "target_vol": 0.45,
+    "band": 0.1,
+    "signal": "sign"
+   },
+   "whole": {
+    "sharpe": 0.08430162481725711,
+    "max_drawdown": 0.677318841316749,
+    "total_return": -0.2229725501973785,
+    "loss_stop_share": 0.2379535990481856
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 131,
+     "stops": 14,
+     "liquidations": 0,
+     "entries": 65
+    },
+    "ETHUSDT": {
+     "fills": 617,
+     "stops": 93,
+     "liquidations": 0,
+     "entries": 322
+    },
+    "latch_trips": 177
+   }
+  },
+  "lb30-90-180 tv0.45 band0.1 scaled": {
+   "setting": {
+    "lookbacks": [
+     30,
+     90,
+     180
+    ],
+    "target_vol": 0.45,
+    "band": 0.1,
+    "signal": "scaled"
+   },
+   "whole": {
+    "sharpe": 0.02805277016167077,
+    "max_drawdown": 0.5051415884280199,
+    "total_return": -0.17079111983066453,
+    "loss_stop_share": 0.0660321237358715
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 130,
+     "stops": 17,
+     "liquidations": 0,
+     "entries": 63
+    },
+    "ETHUSDT": {
+     "fills": 533,
+     "stops": 96,
+     "liquidations": 0,
+     "entries": 266
+    },
+    "latch_trips": 95
+   }
+  },
+  "lb30-90-180 tv0.45 band0.2 sign": {
+   "setting": {
+    "lookbacks": [
+     30,
+     90,
+     180
+    ],
+    "target_vol": 0.45,
+    "band": 0.2,
+    "signal": "sign"
+   },
+   "whole": {
+    "sharpe": 0.11077949562218434,
+    "max_drawdown": 0.6783633184788957,
+    "total_return": -0.18021671047118426,
+    "loss_stop_share": 0.23319452706722188
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 133,
+     "stops": 14,
+     "liquidations": 0,
+     "entries": 66
+    },
+    "ETHUSDT": {
+     "fills": 600,
+     "stops": 90,
+     "liquidations": 0,
+     "entries": 311
+    },
+    "latch_trips": 176
+   }
+  },
+  "lb30-90-180 tv0.45 band0.2 scaled": {
+   "setting": {
+    "lookbacks": [
+     30,
+     90,
+     180
+    ],
+    "target_vol": 0.45,
+    "band": 0.2,
+    "signal": "scaled"
+   },
+   "whole": {
+    "sharpe": 0.09818280826057732,
+    "max_drawdown": 0.47309003683897033,
+    "total_return": -0.0890695255563827,
+    "loss_stop_share": 0.07495538370017847
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 124,
+     "stops": 17,
+     "liquidations": 0,
+     "entries": 61
+    },
+    "ETHUSDT": {
+     "fills": 450,
+     "stops": 89,
+     "liquidations": 0,
+     "entries": 248
+    },
+    "latch_trips": 100
+   }
+  },
+  "lb10-20-30-60 tv0.2 band0.05 sign": {
+   "setting": {
+    "lookbacks": [
+     10,
+     20,
+     30,
+     60
+    ],
+    "target_vol": 0.2,
+    "band": 0.05,
+    "signal": "sign"
+   },
+   "whole": {
+    "sharpe": 0.6740893653169231,
+    "max_drawdown": 0.22775477421166723,
+    "total_return": 0.6377806986347672,
+    "loss_stop_share": 0.001189767995240928
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 162,
+     "stops": 13,
+     "liquidations": 0,
+     "entries": 76
+    },
+    "ETHUSDT": {
+     "fills": 363,
+     "stops": 59,
+     "liquidations": 0,
+     "entries": 170
+    },
+    "latch_trips": 20
+   }
+  },
+  "lb10-20-30-60 tv0.2 band0.05 scaled": {
+   "setting": {
+    "lookbacks": [
+     10,
+     20,
+     30,
+     60
+    ],
+    "target_vol": 0.2,
+    "band": 0.05,
+    "signal": "scaled"
+   },
+   "whole": {
+    "sharpe": 0.6900253170373173,
+    "max_drawdown": 0.13108843709963103,
+    "total_return": 0.43065234783321293,
+    "loss_stop_share": 0.0
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 57,
+     "stops": 3,
+     "liquidations": 0,
+     "entries": 26
+    },
+    "ETHUSDT": {
+     "fills": 210,
+     "stops": 47,
+     "liquidations": 0,
+     "entries": 75
+    },
+    "latch_trips": 7
+   }
+  },
+  "lb10-20-30-60 tv0.2 band0.1 sign": {
+   "setting": {
+    "lookbacks": [
+     10,
+     20,
+     30,
+     60
+    ],
+    "target_vol": 0.2,
+    "band": 0.1,
+    "signal": "sign"
+   },
+   "whole": {
+    "sharpe": 0.5921967217025103,
+    "max_drawdown": 0.20419221677909594,
+    "total_return": 0.49669566750606275,
+    "loss_stop_share": 0.0
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 134,
+     "stops": 13,
+     "liquidations": 0,
+     "entries": 62
+    },
+    "ETHUSDT": {
+     "fills": 298,
+     "stops": 55,
+     "liquidations": 0,
+     "entries": 142
+    },
+    "latch_trips": 17
+   }
+  },
+  "lb10-20-30-60 tv0.2 band0.1 scaled": {
+   "setting": {
+    "lookbacks": [
+     10,
+     20,
+     30,
+     60
+    ],
+    "target_vol": 0.2,
+    "band": 0.1,
+    "signal": "scaled"
+   },
+   "whole": {
+    "sharpe": 0.4880464174619996,
+    "max_drawdown": 0.13519300657954236,
+    "total_return": 0.2749673522026925,
+    "loss_stop_share": 0.0
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 57,
+     "stops": 5,
+     "liquidations": 0,
+     "entries": 27
+    },
+    "ETHUSDT": {
+     "fills": 175,
+     "stops": 47,
+     "liquidations": 0,
+     "entries": 69
+    },
+    "latch_trips": 7
+   }
+  },
+  "lb10-20-30-60 tv0.2 band0.2 sign": {
+   "setting": {
+    "lookbacks": [
+     10,
+     20,
+     30,
+     60
+    ],
+    "target_vol": 0.2,
+    "band": 0.2,
+    "signal": "sign"
+   },
+   "whole": {
+    "sharpe": 0.5894101989682028,
+    "max_drawdown": 0.20616391143531598,
+    "total_return": 0.5030081477337713,
+    "loss_stop_share": 0.0
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 133,
+     "stops": 14,
+     "liquidations": 0,
+     "entries": 62
+    },
+    "ETHUSDT": {
+     "fills": 266,
+     "stops": 51,
+     "liquidations": 0,
+     "entries": 131
+    },
+    "latch_trips": 16
+   }
+  },
+  "lb10-20-30-60 tv0.2 band0.2 scaled": {
+   "setting": {
+    "lookbacks": [
+     10,
+     20,
+     30,
+     60
+    ],
+    "target_vol": 0.2,
+    "band": 0.2,
+    "signal": "scaled"
+   },
+   "whole": {
+    "sharpe": 0.6488966678066698,
+    "max_drawdown": 0.14703376681354952,
+    "total_return": 0.42038076226482857,
+    "loss_stop_share": 0.0
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 62,
+     "stops": 4,
+     "liquidations": 0,
+     "entries": 30
+    },
+    "ETHUSDT": {
+     "fills": 156,
+     "stops": 44,
+     "liquidations": 0,
+     "entries": 70
+    },
+    "latch_trips": 8
+   }
+  },
+  "lb10-20-30-60 tv0.3 band0.05 sign": {
+   "setting": {
+    "lookbacks": [
+     10,
+     20,
+     30,
+     60
+    ],
+    "target_vol": 0.3,
+    "band": 0.05,
+    "signal": "sign"
+   },
+   "whole": {
+    "sharpe": 0.6348660239596107,
+    "max_drawdown": 0.30349288473598,
+    "total_return": 0.9699119929852831,
+    "loss_stop_share": 0.021415823914336704
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 288,
+     "stops": 22,
+     "liquidations": 0,
+     "entries": 142
+    },
+    "ETHUSDT": {
+     "fills": 493,
+     "stops": 72,
+     "liquidations": 0,
+     "entries": 248
+    },
+    "latch_trips": 71
+   }
+  },
+  "lb10-20-30-60 tv0.3 band0.05 scaled": {
+   "setting": {
+    "lookbacks": [
+     10,
+     20,
+     30,
+     60
+    ],
+    "target_vol": 0.3,
+    "band": 0.05,
+    "signal": "scaled"
+   },
+   "whole": {
+    "sharpe": 0.7063904419905692,
+    "max_drawdown": 0.20568160616406117,
+    "total_return": 0.8311948385086612,
+    "loss_stop_share": 0.000594883997620464
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 164,
+     "stops": 15,
+     "liquidations": 0,
+     "entries": 79
+    },
+    "ETHUSDT": {
+     "fills": 353,
+     "stops": 58,
+     "liquidations": 0,
+     "entries": 139
+    },
+    "latch_trips": 28
+   }
+  },
+  "lb10-20-30-60 tv0.3 band0.1 sign": {
+   "setting": {
+    "lookbacks": [
+     10,
+     20,
+     30,
+     60
+    ],
+    "target_vol": 0.3,
+    "band": 0.1,
+    "signal": "sign"
+   },
+   "whole": {
+    "sharpe": 0.6352675534656655,
+    "max_drawdown": 0.31550247800167563,
+    "total_return": 0.9772208456715692,
+    "loss_stop_share": 0.023200475907198096
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 283,
+     "stops": 19,
+     "liquidations": 0,
+     "entries": 141
+    },
+    "ETHUSDT": {
+     "fills": 491,
+     "stops": 74,
+     "liquidations": 0,
+     "entries": 253
+    },
+    "latch_trips": 75
+   }
+  },
+  "lb10-20-30-60 tv0.3 band0.1 scaled": {
+   "setting": {
+    "lookbacks": [
+     10,
+     20,
+     30,
+     60
+    ],
+    "target_vol": 0.3,
+    "band": 0.1,
+    "signal": "scaled"
+   },
+   "whole": {
+    "sharpe": 0.733337022384795,
+    "max_drawdown": 0.19461583145342987,
+    "total_return": 0.904876361141965,
+    "loss_stop_share": 0.001784651992861392
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 168,
+     "stops": 15,
+     "liquidations": 0,
+     "entries": 83
+    },
+    "ETHUSDT": {
+     "fills": 316,
+     "stops": 53,
+     "liquidations": 0,
+     "entries": 139
+    },
+    "latch_trips": 29
+   }
+  },
+  "lb10-20-30-60 tv0.3 band0.2 sign": {
+   "setting": {
+    "lookbacks": [
+     10,
+     20,
+     30,
+     60
+    ],
+    "target_vol": 0.3,
+    "band": 0.2,
+    "signal": "sign"
+   },
+   "whole": {
+    "sharpe": 0.6328135924700963,
+    "max_drawdown": 0.3142847430469198,
+    "total_return": 0.9674728327480608,
+    "loss_stop_share": 0.020226055919095775
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 281,
+     "stops": 18,
+     "liquidations": 0,
+     "entries": 142
+    },
+    "ETHUSDT": {
+     "fills": 495,
+     "stops": 76,
+     "liquidations": 0,
+     "entries": 259
+    },
+    "latch_trips": 78
+   }
+  },
+  "lb10-20-30-60 tv0.3 band0.2 scaled": {
+   "setting": {
+    "lookbacks": [
+     10,
+     20,
+     30,
+     60
+    ],
+    "target_vol": 0.3,
+    "band": 0.2,
+    "signal": "scaled"
+   },
+   "whole": {
+    "sharpe": 0.7338047646172203,
+    "max_drawdown": 0.21972538814401044,
+    "total_return": 0.9157441714928369,
+    "loss_stop_share": 0.001189767995240928
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 150,
+     "stops": 14,
+     "liquidations": 0,
+     "entries": 75
+    },
+    "ETHUSDT": {
+     "fills": 293,
+     "stops": 62,
+     "liquidations": 0,
+     "entries": 150
+    },
+    "latch_trips": 33
+   }
+  },
+  "lb10-20-30-60 tv0.45 band0.05 sign": {
+   "setting": {
+    "lookbacks": [
+     10,
+     20,
+     30,
+     60
+    ],
+    "target_vol": 0.45,
+    "band": 0.05,
+    "signal": "sign"
+   },
+   "whole": {
+    "sharpe": 0.5527809944289253,
+    "max_drawdown": 0.45776768517983246,
+    "total_return": 1.0068621041961627,
+    "loss_stop_share": 0.14098750743604996
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 435,
+     "stops": 31,
+     "liquidations": 0,
+     "entries": 222
+    },
+    "ETHUSDT": {
+     "fills": 626,
+     "stops": 65,
+     "liquidations": 0,
+     "entries": 329
+    },
+    "latch_trips": 167
+   }
+  },
+  "lb10-20-30-60 tv0.45 band0.05 scaled": {
+   "setting": {
+    "lookbacks": [
+     10,
+     20,
+     30,
+     60
+    ],
+    "target_vol": 0.45,
+    "band": 0.05,
+    "signal": "scaled"
+   },
+   "whole": {
+    "sharpe": 0.41058152341959164,
+    "max_drawdown": 0.3216428287309616,
+    "total_return": 0.46270471483883147,
+    "loss_stop_share": 0.03152885187388459
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 192,
+     "stops": 11,
+     "liquidations": 0,
+     "entries": 92
+    },
+    "ETHUSDT": {
+     "fills": 603,
+     "stops": 81,
+     "liquidations": 0,
+     "entries": 280
+    },
+    "latch_trips": 85
+   }
+  },
+  "lb10-20-30-60 tv0.45 band0.1 sign": {
+   "setting": {
+    "lookbacks": [
+     10,
+     20,
+     30,
+     60
+    ],
+    "target_vol": 0.45,
+    "band": 0.1,
+    "signal": "sign"
+   },
+   "whole": {
+    "sharpe": 0.45178247419397227,
+    "max_drawdown": 0.49624953156844676,
+    "total_return": 0.6437310505818941,
+    "loss_stop_share": 0.15288518738845924
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 446,
+     "stops": 31,
+     "liquidations": 0,
+     "entries": 230
+    },
+    "ETHUSDT": {
+     "fills": 601,
+     "stops": 67,
+     "liquidations": 0,
+     "entries": 318
+    },
+    "latch_trips": 166
+   }
+  },
+  "lb10-20-30-60 tv0.45 band0.1 scaled": {
+   "setting": {
+    "lookbacks": [
+     10,
+     20,
+     30,
+     60
+    ],
+    "target_vol": 0.45,
+    "band": 0.1,
+    "signal": "scaled"
+   },
+   "whole": {
+    "sharpe": 0.30640485387676347,
+    "max_drawdown": 0.33511143261466303,
+    "total_return": 0.2581260311351521,
+    "loss_stop_share": 0.02676977989292088
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 200,
+     "stops": 14,
+     "liquidations": 0,
+     "entries": 97
+    },
+    "ETHUSDT": {
+     "fills": 532,
+     "stops": 83,
+     "liquidations": 0,
+     "entries": 253
+    },
+    "latch_trips": 82
+   }
+  },
+  "lb10-20-30-60 tv0.45 band0.2 sign": {
+   "setting": {
+    "lookbacks": [
+     10,
+     20,
+     30,
+     60
+    ],
+    "target_vol": 0.45,
+    "band": 0.2,
+    "signal": "sign"
+   },
+   "whole": {
+    "sharpe": 0.522136376845307,
+    "max_drawdown": 0.491153673963329,
+    "total_return": 0.8903664356092615,
+    "loss_stop_share": 0.1338488994646044
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 442,
+     "stops": 32,
+     "liquidations": 0,
+     "entries": 228
+    },
+    "ETHUSDT": {
+     "fills": 597,
+     "stops": 65,
+     "liquidations": 0,
+     "entries": 315
+    },
+    "latch_trips": 166
+   }
+  },
+  "lb10-20-30-60 tv0.45 band0.2 scaled": {
+   "setting": {
+    "lookbacks": [
+     10,
+     20,
+     30,
+     60
+    ],
+    "target_vol": 0.45,
+    "band": 0.2,
+    "signal": "scaled"
+   },
+   "whole": {
+    "sharpe": 0.40194535795871456,
+    "max_drawdown": 0.38211357025439907,
+    "total_return": 0.4472690043895562,
+    "loss_stop_share": 0.034503271861986914
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 187,
+     "stops": 16,
+     "liquidations": 0,
+     "entries": 91
+    },
+    "ETHUSDT": {
+     "fills": 496,
+     "stops": 84,
+     "liquidations": 0,
+     "entries": 259
+    },
+    "latch_trips": 84
+   }
+  }
+ },
+ "consistency": {
+  "same": true,
+  "frozen": {
+   "sharpe": 0.6263097560076983,
+   "max_drawdown": 0.2549917316659084,
+   "total_return": 0.878116680911482,
+   "loss_stop_share": 0.02676977989292088
+  },
+  "reference": {
+   "sharpe": 0.6263097560076983,
+   "max_drawdown": 0.2549917316659084,
+   "total_return": 0.878116680911482,
+   "loss_stop_share": 0.02676977989292088
+  }
+ },
+ "walk_forward": {
+  "choices": {
+   "2022": "lb30-90-180 tv0.45 band0.2 scaled",
+   "2023": "lb30-90-180 tv0.45 band0.2 scaled",
+   "2024": "lb10-20-30-60 tv0.3 band0.05 sign",
+   "2025": "lb10-20-30-60 tv0.2 band0.05 scaled"
+  },
+  "stats": {
+   "sharpe": 0.3564761387396338,
+   "max_drawdown": 0.3076076721988209,
+   "total_return": 0.2438441747222524,
+   "loss_stop_share": 0.052075471698113204
+  },
+  "double_costs": {
+   "sharpe": 0.11131871421405554,
+   "max_drawdown": 0.3490546008144526,
+   "total_return": -0.002278908092712917,
+   "loss_stop_share": 0.06641509433962264
+  },
+  "frozen_same_years": {
+   "sharpe": 0.7844914813385702,
+   "max_drawdown": 0.2549917316659085,
+   "total_return": 0.9346838562461413,
+   "loss_stop_share": 0.030943396226415093
+  },
+  "family": {
+   "family": "directional_btc_eth",
+   "n_trials": 159,
+   "n_with_sharpe": 107,
+   "sharpe_std": 0.21603518529891846,
+   "best_sharpe": 0.7844655563581826
+  },
+  "deflated_probability": 0.327162756096971
+ },
+ "final": {
+  "choice": "lb10-20-30-60 tv0.2 band0.05 sign",
+  "whole": {
+   "sharpe": 0.6740893653169231,
+   "max_drawdown": 0.22775477421166723,
+   "total_return": 0.6377806986347672,
+   "loss_stop_share": 0.001189767995240928
+  },
+  "double_costs": {
+   "sharpe": 0.5432506693943258,
+   "max_drawdown": 0.2273947186805303,
+   "total_return": 0.4620224051424717,
+   "loss_stop_share": 0.0
+  },
+  "neighbours": {
+   "lb10-20-30-60-90-120-180 tv0.2 band0.05 sign": {
+    "sharpe": 0.4480986361140001,
+    "max_drawdown": 0.2001555887072467,
+    "total_return": 0.3005393850439868,
+    "loss_stop_share": 0.001189767995240928
+   },
+   "lb20-60-120 tv0.2 band0.05 sign": {
+    "sharpe": 0.4435809568918888,
+    "max_drawdown": 0.2399489764633208,
+    "total_return": 0.3454782434865229,
+    "loss_stop_share": 0.00594883997620464
+   },
+   "lb30-90-180 tv0.2 band0.05 sign": {
+    "sharpe": 0.32216875193787287,
+    "max_drawdown": 0.2224709382248119,
+    "total_return": 0.21498141652518488,
+    "loss_stop_share": 0.002379535990481856
+   },
+   "lb10-20-30-60 tv0.3 band0.05 sign": {
+    "sharpe": 0.6348660239596107,
+    "max_drawdown": 0.30349288473598,
+    "total_return": 0.9699119929852831,
+    "loss_stop_share": 0.021415823914336704
+   },
+   "lb10-20-30-60 tv0.2 band0.1 sign": {
+    "sharpe": 0.5921967217025103,
+    "max_drawdown": 0.20419221677909594,
+    "total_return": 0.49669566750606275,
+    "loss_stop_share": 0.0
+   },
+   "lb10-20-30-60 tv0.2 band0.05 scaled": {
+    "sharpe": 0.6900253170373173,
+    "max_drawdown": 0.13108843709963103,
+    "total_return": 0.43065234783321293,
+    "loss_stop_share": 0.0
+   }
+  }
+ },
+ "adoption": {
+  "checks": {
+   "walk_forward_sharpe_at_least_frozen_plus_0.10": false,
+   "walk_forward_double_costs_return_above_0": false,
+   "final_double_costs_return_above_0": true
+  },
+  "adopt": false
+ }
+}

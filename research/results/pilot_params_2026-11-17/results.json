@@ -1,0 +1,4013 @@
+{
+ "spec": {
+  "lookbacks": [
+   10,
+   20,
+   30,
+   60,
+   90,
+   120,
+   180
+  ],
+  "signal": "sign",
+  "long_only": true,
+  "vol_lookback": 30,
+  "target_vol": 0.3,
+  "max_weight": 0.9,
+  "funding_filter": false,
+  "vol_spike_cut": false,
+  "confirm_4h": false,
+  "band": 0.1,
+  "execution": "market",
+  "ttl_bars": 1
+ },
+ "capital_usdt": 150.0,
+ "window": "2021-01-10..2025-11-16 (development only)",
+ "baseline": "2x stop0.045@10x pause latch0.03/0.12",
+ "settings": {
+  "1x stop0.045@10x pause latch0.03/0.12": {
+   "setting": {
+    "multiple": 1.0,
+    "stop": "0.045",
+    "after_stop": "pause",
+    "latch": [
+     0.03,
+     0.12
+    ],
+    "margin": 10
+   },
+   "whole": {
+    "sharpe": 0.5517784596445092,
+    "max_drawdown": 0.1112382701689254,
+    "total_return": 0.22984428832853543,
+    "loss_stop_share": 0.0
+   },
+   "years": {
+    "2021": {
+     "sharpe": -0.18444219840220555,
+     "max_drawdown": 0.0878400001532792,
+     "total_return": -0.022197765443189743,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": 0.0,
+     "max_drawdown": 0.0,
+     "total_return": 0.0,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": -0.07294419033544516,
+     "max_drawdown": 0.11123827016892596,
+     "total_return": -0.010690845348197087,
+     "loss_stop_share": 0.0
+    },
+    "2024": {
+     "sharpe": 1.690655120234659,
+     "max_drawdown": 0.06706183298398183,
+     "total_return": 0.19351429917084606,
+     "loss_stop_share": 0.0
+    },
+    "2025": {
+     "sharpe": 1.0401500035043902,
+     "max_drawdown": 0.05946471434109546,
+     "total_return": 0.06522033543800854,
+     "loss_stop_share": 0.0
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 19,
+     "stops": 1,
+     "liquidations": 0,
+     "entries": 9
+    },
+    "ETHUSDT": {
+     "fills": 148,
+     "stops": 25,
+     "liquidations": 0,
+     "entries": 55
+    },
+    "latch_trips": 1
+   }
+  },
+  "1x stop0.045@10x pause latch0.05/0.12": {
+   "setting": {
+    "multiple": 1.0,
+    "stop": "0.045",
+    "after_stop": "pause",
+    "latch": [
+     0.05,
+     0.12
+    ],
+    "margin": 10
+   },
+   "whole": {
+    "sharpe": 0.5517784596445092,
+    "max_drawdown": 0.1112382701689254,
+    "total_return": 0.22984428832853543,
+    "loss_stop_share": 0.0
+   },
+   "years": {
+    "2021": {
+     "sharpe": -0.18444219840220555,
+     "max_drawdown": 0.0878400001532792,
+     "total_return": -0.022197765443189743,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": 0.0,
+     "max_drawdown": 0.0,
+     "total_return": 0.0,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": -0.07294419033544516,
+     "max_drawdown": 0.11123827016892596,
+     "total_return": -0.010690845348197087,
+     "loss_stop_share": 0.0
+    },
+    "2024": {
+     "sharpe": 1.690655120234659,
+     "max_drawdown": 0.06706183298398183,
+     "total_return": 0.19351429917084606,
+     "loss_stop_share": 0.0
+    },
+    "2025": {
+     "sharpe": 1.0401500035043902,
+     "max_drawdown": 0.05946471434109546,
+     "total_return": 0.06522033543800854,
+     "loss_stop_share": 0.0
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 19,
+     "stops": 1,
+     "liquidations": 0,
+     "entries": 9
+    },
+    "ETHUSDT": {
+     "fills": 148,
+     "stops": 25,
+     "liquidations": 0,
+     "entries": 55
+    },
+    "latch_trips": 0
+   }
+  },
+  "1x stop0.045@10x pause_then_reset latch0.03/0.12": {
+   "setting": {
+    "multiple": 1.0,
+    "stop": "0.045",
+    "after_stop": "pause_then_reset",
+    "latch": [
+     0.03,
+     0.12
+    ],
+    "margin": 10
+   },
+   "whole": {
+    "sharpe": 0.7075958812030981,
+    "max_drawdown": 0.10402007442934502,
+    "total_return": 0.28209370446939275,
+    "loss_stop_share": 0.0
+   },
+   "years": {
+    "2021": {
+     "sharpe": 0.013384059217129955,
+     "max_drawdown": 0.03962311210831748,
+     "total_return": -0.00041155581376617345,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": 0.0,
+     "max_drawdown": 0.0,
+     "total_return": 0.0,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.18871815139036333,
+     "max_drawdown": 0.10402007442934469,
+     "total_return": 0.0136408783273545,
+     "loss_stop_share": 0.0
+    },
+    "2024": {
+     "sharpe": 1.5494818298662265,
+     "max_drawdown": 0.07047424690526449,
+     "total_return": 0.1791964993519024,
+     "loss_stop_share": 0.0
+    },
+    "2025": {
+     "sharpe": 1.103301200477158,
+     "max_drawdown": 0.0581041655530562,
+     "total_return": 0.07307046866679467,
+     "loss_stop_share": 0.0
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 13,
+     "stops": 1,
+     "liquidations": 0,
+     "entries": 6
+    },
+    "ETHUSDT": {
+     "fills": 103,
+     "stops": 13,
+     "liquidations": 0,
+     "entries": 38
+    },
+    "latch_trips": 0
+   }
+  },
+  "1x stop0.045@10x pause_then_reset latch0.05/0.12": {
+   "setting": {
+    "multiple": 1.0,
+    "stop": "0.045",
+    "after_stop": "pause_then_reset",
+    "latch": [
+     0.05,
+     0.12
+    ],
+    "margin": 10
+   },
+   "whole": {
+    "sharpe": 0.7075958812030981,
+    "max_drawdown": 0.10402007442934502,
+    "total_return": 0.28209370446939275,
+    "loss_stop_share": 0.0
+   },
+   "years": {
+    "2021": {
+     "sharpe": 0.013384059217129955,
+     "max_drawdown": 0.03962311210831748,
+     "total_return": -0.00041155581376617345,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": 0.0,
+     "max_drawdown": 0.0,
+     "total_return": 0.0,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.18871815139036333,
+     "max_drawdown": 0.10402007442934469,
+     "total_return": 0.0136408783273545,
+     "loss_stop_share": 0.0
+    },
+    "2024": {
+     "sharpe": 1.5494818298662265,
+     "max_drawdown": 0.07047424690526449,
+     "total_return": 0.1791964993519024,
+     "loss_stop_share": 0.0
+    },
+    "2025": {
+     "sharpe": 1.103301200477158,
+     "max_drawdown": 0.0581041655530562,
+     "total_return": 0.07307046866679467,
+     "loss_stop_share": 0.0
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 13,
+     "stops": 1,
+     "liquidations": 0,
+     "entries": 6
+    },
+    "ETHUSDT": {
+     "fills": 103,
+     "stops": 13,
+     "liquidations": 0,
+     "entries": 38
+    },
+    "latch_trips": 0
+   }
+  },
+  "1x stop0.08@6x pause latch0.03/0.12": {
+   "setting": {
+    "multiple": 1.0,
+    "stop": "0.08",
+    "after_stop": "pause",
+    "latch": [
+     0.03,
+     0.12
+    ],
+    "margin": 6
+   },
+   "whole": {
+    "sharpe": 0.553602844717689,
+    "max_drawdown": 0.11095950656638898,
+    "total_return": 0.23223145547560176,
+    "loss_stop_share": 0.0
+   },
+   "years": {
+    "2021": {
+     "sharpe": -0.173821682343777,
+     "max_drawdown": 0.09276451886944559,
+     "total_return": -0.021917496975886075,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": 0.0,
+     "max_drawdown": 0.0,
+     "total_return": 0.0,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": -0.06979458221028875,
+     "max_drawdown": 0.11095950656638953,
+     "total_return": -0.010420880636181185,
+     "loss_stop_share": 0.0
+    },
+    "2024": {
+     "sharpe": 1.7250117063829735,
+     "max_drawdown": 0.06703194783561117,
+     "total_return": 0.19698933502614668,
+     "loss_stop_share": 0.0
+    },
+    "2025": {
+     "sharpe": 1.017100832065626,
+     "max_drawdown": 0.05962454044950649,
+     "total_return": 0.06359429038545583,
+     "loss_stop_share": 0.0
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 13,
+     "stops": 0,
+     "liquidations": 0,
+     "entries": 6
+    },
+    "ETHUSDT": {
+     "fills": 133,
+     "stops": 13,
+     "liquidations": 0,
+     "entries": 46
+    },
+    "latch_trips": 1
+   }
+  },
+  "1x stop0.08@6x pause latch0.05/0.12": {
+   "setting": {
+    "multiple": 1.0,
+    "stop": "0.08",
+    "after_stop": "pause",
+    "latch": [
+     0.05,
+     0.12
+    ],
+    "margin": 6
+   },
+   "whole": {
+    "sharpe": 0.553602844717689,
+    "max_drawdown": 0.11095950656638898,
+    "total_return": 0.23223145547560176,
+    "loss_stop_share": 0.0
+   },
+   "years": {
+    "2021": {
+     "sharpe": -0.173821682343777,
+     "max_drawdown": 0.09276451886944559,
+     "total_return": -0.021917496975886075,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": 0.0,
+     "max_drawdown": 0.0,
+     "total_return": 0.0,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": -0.06979458221028875,
+     "max_drawdown": 0.11095950656638953,
+     "total_return": -0.010420880636181185,
+     "loss_stop_share": 0.0
+    },
+    "2024": {
+     "sharpe": 1.7250117063829735,
+     "max_drawdown": 0.06703194783561117,
+     "total_return": 0.19698933502614668,
+     "loss_stop_share": 0.0
+    },
+    "2025": {
+     "sharpe": 1.017100832065626,
+     "max_drawdown": 0.05962454044950649,
+     "total_return": 0.06359429038545583,
+     "loss_stop_share": 0.0
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 13,
+     "stops": 0,
+     "liquidations": 0,
+     "entries": 6
+    },
+    "ETHUSDT": {
+     "fills": 133,
+     "stops": 13,
+     "liquidations": 0,
+     "entries": 46
+    },
+    "latch_trips": 0
+   }
+  },
+  "1x stop0.08@6x pause_then_reset latch0.03/0.12": {
+   "setting": {
+    "multiple": 1.0,
+    "stop": "0.08",
+    "after_stop": "pause_then_reset",
+    "latch": [
+     0.03,
+     0.12
+    ],
+    "margin": 6
+   },
+   "whole": {
+    "sharpe": 0.3843201652300934,
+    "max_drawdown": 0.10916489737822399,
+    "total_return": 0.12309421301981738,
+    "loss_stop_share": 0.0
+   },
+   "years": {
+    "2021": {
+     "sharpe": 0.3121996015290795,
+     "max_drawdown": 0.04251570240345859,
+     "total_return": 0.016594525214240985,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": -0.13542197377960258,
+     "max_drawdown": 0.007047715542690014,
+     "total_return": -0.001218516752713894,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.1786460383223345,
+     "max_drawdown": 0.10916489737822455,
+     "total_return": 0.013292450890700414,
+     "loss_stop_share": 0.0
+    },
+    "2024": {
+     "sharpe": 0.49014020402844166,
+     "max_drawdown": 0.03168371865203856,
+     "total_return": 0.03180782522810133,
+     "loss_stop_share": 0.0
+    },
+    "2025": {
+     "sharpe": 1.026475474073403,
+     "max_drawdown": 0.052523893701686974,
+     "total_return": 0.057947986504652604,
+     "loss_stop_share": 0.0
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 13,
+     "stops": 0,
+     "liquidations": 0,
+     "entries": 6
+    },
+    "ETHUSDT": {
+     "fills": 108,
+     "stops": 10,
+     "liquidations": 0,
+     "entries": 39
+    },
+    "latch_trips": 0
+   }
+  },
+  "1x stop0.08@6x pause_then_reset latch0.05/0.12": {
+   "setting": {
+    "multiple": 1.0,
+    "stop": "0.08",
+    "after_stop": "pause_then_reset",
+    "latch": [
+     0.05,
+     0.12
+    ],
+    "margin": 6
+   },
+   "whole": {
+    "sharpe": 0.3843201652300934,
+    "max_drawdown": 0.10916489737822399,
+    "total_return": 0.12309421301981738,
+    "loss_stop_share": 0.0
+   },
+   "years": {
+    "2021": {
+     "sharpe": 0.3121996015290795,
+     "max_drawdown": 0.04251570240345859,
+     "total_return": 0.016594525214240985,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": -0.13542197377960258,
+     "max_drawdown": 0.007047715542690014,
+     "total_return": -0.001218516752713894,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.1786460383223345,
+     "max_drawdown": 0.10916489737822455,
+     "total_return": 0.013292450890700414,
+     "loss_stop_share": 0.0
+    },
+    "2024": {
+     "sharpe": 0.49014020402844166,
+     "max_drawdown": 0.03168371865203856,
+     "total_return": 0.03180782522810133,
+     "loss_stop_share": 0.0
+    },
+    "2025": {
+     "sharpe": 1.026475474073403,
+     "max_drawdown": 0.052523893701686974,
+     "total_return": 0.057947986504652604,
+     "loss_stop_share": 0.0
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 13,
+     "stops": 0,
+     "liquidations": 0,
+     "entries": 6
+    },
+    "ETHUSDT": {
+     "fills": 108,
+     "stops": 10,
+     "liquidations": 0,
+     "entries": 39
+    },
+    "latch_trips": 0
+   }
+  },
+  "1x stop0.12@4x pause latch0.03/0.12": {
+   "setting": {
+    "multiple": 1.0,
+    "stop": "0.12",
+    "after_stop": "pause",
+    "latch": [
+     0.03,
+     0.12
+    ],
+    "margin": 4
+   },
+   "whole": {
+    "sharpe": 0.3220932120715579,
+    "max_drawdown": 0.1179925441832762,
+    "total_return": 0.11700199365884068,
+    "loss_stop_share": 0.0
+   },
+   "years": {
+    "2021": {
+     "sharpe": -0.32483033909498404,
+     "max_drawdown": 0.09699877573637272,
+     "total_return": -0.037367092381812905,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": 0.0,
+     "max_drawdown": 0.0,
+     "total_return": 0.0,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": -0.06490598245907726,
+     "max_drawdown": 0.11153360257357314,
+     "total_return": -0.009853768655306405,
+     "loss_stop_share": 0.0
+    },
+    "2024": {
+     "sharpe": 1.2010804717959598,
+     "max_drawdown": 0.08567088392531097,
+     "total_return": 0.11785144324278951,
+     "loss_stop_share": 0.0
+    },
+    "2025": {
+     "sharpe": 0.8399800405312492,
+     "max_drawdown": 0.061952607017438543,
+     "total_return": 0.04835848275495569,
+     "loss_stop_share": 0.0
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 13,
+     "stops": 0,
+     "liquidations": 0,
+     "entries": 6
+    },
+    "ETHUSDT": {
+     "fills": 118,
+     "stops": 9,
+     "liquidations": 0,
+     "entries": 41
+    },
+    "latch_trips": 1
+   }
+  },
+  "1x stop0.12@4x pause latch0.05/0.12": {
+   "setting": {
+    "multiple": 1.0,
+    "stop": "0.12",
+    "after_stop": "pause",
+    "latch": [
+     0.05,
+     0.12
+    ],
+    "margin": 4
+   },
+   "whole": {
+    "sharpe": 0.3220932120715579,
+    "max_drawdown": 0.1179925441832762,
+    "total_return": 0.11700199365884068,
+    "loss_stop_share": 0.0
+   },
+   "years": {
+    "2021": {
+     "sharpe": -0.32483033909498404,
+     "max_drawdown": 0.09699877573637272,
+     "total_return": -0.037367092381812905,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": 0.0,
+     "max_drawdown": 0.0,
+     "total_return": 0.0,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": -0.06490598245907726,
+     "max_drawdown": 0.11153360257357314,
+     "total_return": -0.009853768655306405,
+     "loss_stop_share": 0.0
+    },
+    "2024": {
+     "sharpe": 1.2010804717959598,
+     "max_drawdown": 0.08567088392531097,
+     "total_return": 0.11785144324278951,
+     "loss_stop_share": 0.0
+    },
+    "2025": {
+     "sharpe": 0.8399800405312492,
+     "max_drawdown": 0.061952607017438543,
+     "total_return": 0.04835848275495569,
+     "loss_stop_share": 0.0
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 13,
+     "stops": 0,
+     "liquidations": 0,
+     "entries": 6
+    },
+    "ETHUSDT": {
+     "fills": 118,
+     "stops": 9,
+     "liquidations": 0,
+     "entries": 41
+    },
+    "latch_trips": 0
+   }
+  },
+  "1x stop0.12@4x pause_then_reset latch0.03/0.12": {
+   "setting": {
+    "multiple": 1.0,
+    "stop": "0.12",
+    "after_stop": "pause_then_reset",
+    "latch": [
+     0.03,
+     0.12
+    ],
+    "margin": 4
+   },
+   "whole": {
+    "sharpe": 0.6858619299007825,
+    "max_drawdown": 0.10507003031986228,
+    "total_return": 0.28797830482487696,
+    "loss_stop_share": 0.0
+   },
+   "years": {
+    "2021": {
+     "sharpe": 0.18941765107100153,
+     "max_drawdown": 0.042753291775456836,
+     "total_return": 0.009441696605335448,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": 0.0,
+     "max_drawdown": 0.0,
+     "total_return": 0.0,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.226934333239179,
+     "max_drawdown": 0.10507003031986373,
+     "total_return": 0.018421899209564607,
+     "loss_stop_share": 0.0
+    },
+    "2024": {
+     "sharpe": 1.616335937451294,
+     "max_drawdown": 0.07275053235374618,
+     "total_return": 0.18637417326670325,
+     "loss_stop_share": 0.0
+    },
+    "2025": {
+     "sharpe": 0.8364099531068959,
+     "max_drawdown": 0.06960131639056233,
+     "total_return": 0.05603398432932538,
+     "loss_stop_share": 0.0
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 13,
+     "stops": 0,
+     "liquidations": 0,
+     "entries": 6
+    },
+    "ETHUSDT": {
+     "fills": 120,
+     "stops": 3,
+     "liquidations": 0,
+     "entries": 44
+    },
+    "latch_trips": 0
+   }
+  },
+  "1x stop0.12@4x pause_then_reset latch0.05/0.12": {
+   "setting": {
+    "multiple": 1.0,
+    "stop": "0.12",
+    "after_stop": "pause_then_reset",
+    "latch": [
+     0.05,
+     0.12
+    ],
+    "margin": 4
+   },
+   "whole": {
+    "sharpe": 0.6858619299007825,
+    "max_drawdown": 0.10507003031986228,
+    "total_return": 0.28797830482487696,
+    "loss_stop_share": 0.0
+   },
+   "years": {
+    "2021": {
+     "sharpe": 0.18941765107100153,
+     "max_drawdown": 0.042753291775456836,
+     "total_return": 0.009441696605335448,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": 0.0,
+     "max_drawdown": 0.0,
+     "total_return": 0.0,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.226934333239179,
+     "max_drawdown": 0.10507003031986373,
+     "total_return": 0.018421899209564607,
+     "loss_stop_share": 0.0
+    },
+    "2024": {
+     "sharpe": 1.616335937451294,
+     "max_drawdown": 0.07275053235374618,
+     "total_return": 0.18637417326670325,
+     "loss_stop_share": 0.0
+    },
+    "2025": {
+     "sharpe": 0.8364099531068959,
+     "max_drawdown": 0.06960131639056233,
+     "total_return": 0.05603398432932538,
+     "loss_stop_share": 0.0
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 13,
+     "stops": 0,
+     "liquidations": 0,
+     "entries": 6
+    },
+    "ETHUSDT": {
+     "fills": 120,
+     "stops": 3,
+     "liquidations": 0,
+     "entries": 44
+    },
+    "latch_trips": 0
+   }
+  },
+  "1.5x stop0.045@10x pause latch0.03/0.12": {
+   "setting": {
+    "multiple": 1.5,
+    "stop": "0.045",
+    "after_stop": "pause",
+    "latch": [
+     0.03,
+     0.12
+    ],
+    "margin": 10
+   },
+   "whole": {
+    "sharpe": 0.5364784269672298,
+    "max_drawdown": 0.20750792675564467,
+    "total_return": 0.4537050448776272,
+    "loss_stop_share": 0.002379535990481856
+   },
+   "years": {
+    "2021": {
+     "sharpe": -0.17782320435969634,
+     "max_drawdown": 0.11836513087194767,
+     "total_return": -0.043868055750421964,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": -1.3133596917921009,
+     "max_drawdown": 0.022970996540989108,
+     "total_return": -0.022587483454697077,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.5276468944058016,
+     "max_drawdown": 0.2075079267556439,
+     "total_return": 0.0936950336124065,
+     "loss_stop_share": 0.007272727272727273
+    },
+    "2024": {
+     "sharpe": 1.2849349992492223,
+     "max_drawdown": 0.1638115963677157,
+     "total_return": 0.29134799278694246,
+     "loss_stop_share": 0.007246376811594203
+    },
+    "2025": {
+     "sharpe": 0.8042150675765073,
+     "max_drawdown": 0.09345008097568386,
+     "total_return": 0.1013897777481132,
+     "loss_stop_share": 0.0
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 106,
+     "stops": 10,
+     "liquidations": 0,
+     "entries": 50
+    },
+    "ETHUSDT": {
+     "fills": 310,
+     "stops": 67,
+     "liquidations": 0,
+     "entries": 137
+    },
+    "latch_trips": 19
+   }
+  },
+  "1.5x stop0.045@10x pause latch0.05/0.12": {
+   "setting": {
+    "multiple": 1.5,
+    "stop": "0.045",
+    "after_stop": "pause",
+    "latch": [
+     0.05,
+     0.12
+    ],
+    "margin": 10
+   },
+   "whole": {
+    "sharpe": 0.5076255044356609,
+    "max_drawdown": 0.21084394608387913,
+    "total_return": 0.44292068378278904,
+    "loss_stop_share": 0.004164187983343248
+   },
+   "years": {
+    "2021": {
+     "sharpe": -0.079058837669308,
+     "max_drawdown": 0.1298452445737922,
+     "total_return": -0.03486433890952423,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": -1.4980128651711944,
+     "max_drawdown": 0.026883115824504644,
+     "total_return": -0.026883115824504644,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.4934858843138546,
+     "max_drawdown": 0.2108439460838788,
+     "total_return": 0.0882136470149062,
+     "loss_stop_share": 0.014545454545454545
+    },
+    "2024": {
+     "sharpe": 1.418302911070513,
+     "max_drawdown": 0.17406657078601484,
+     "total_return": 0.33492891909258415,
+     "loss_stop_share": 0.010869565217391304
+    },
+    "2025": {
+     "sharpe": 0.4777342036193797,
+     "max_drawdown": 0.11495734711300398,
+     "total_return": 0.057588643803351935,
+     "loss_stop_share": 0.0
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 109,
+     "stops": 9,
+     "liquidations": 0,
+     "entries": 52
+    },
+    "ETHUSDT": {
+     "fills": 287,
+     "stops": 54,
+     "liquidations": 0,
+     "entries": 123
+    },
+    "latch_trips": 6
+   }
+  },
+  "1.5x stop0.045@10x pause_then_reset latch0.03/0.12": {
+   "setting": {
+    "multiple": 1.5,
+    "stop": "0.045",
+    "after_stop": "pause_then_reset",
+    "latch": [
+     0.03,
+     0.12
+    ],
+    "margin": 10
+   },
+   "whole": {
+    "sharpe": 0.6342407735226825,
+    "max_drawdown": 0.1424659061607466,
+    "total_return": 0.4191490471032082,
+    "loss_stop_share": 0.0
+   },
+   "years": {
+    "2021": {
+     "sharpe": 0.07750506204569337,
+     "max_drawdown": 0.053650144862240956,
+     "total_return": 0.0028781273323303935,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": -1.615534383653877,
+     "max_drawdown": 0.020944566289390565,
+     "total_return": -0.018669866984939443,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 1.2061412196456887,
+     "max_drawdown": 0.14246590616074584,
+     "total_return": 0.28013524150047475,
+     "loss_stop_share": 0.0
+    },
+    "2024": {
+     "sharpe": 0.9928051198017105,
+     "max_drawdown": 0.058993271933596825,
+     "total_return": 0.11137624253907119,
+     "loss_stop_share": 0.0
+    },
+    "2025": {
+     "sharpe": 0.20150474776590738,
+     "max_drawdown": 0.068637650058612,
+     "total_return": 0.01355601036150178,
+     "loss_stop_share": 0.0
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 88,
+     "stops": 6,
+     "liquidations": 0,
+     "entries": 40
+    },
+    "ETHUSDT": {
+     "fills": 131,
+     "stops": 19,
+     "liquidations": 0,
+     "entries": 59
+    },
+    "latch_trips": 9
+   }
+  },
+  "1.5x stop0.045@10x pause_then_reset latch0.05/0.12": {
+   "setting": {
+    "multiple": 1.5,
+    "stop": "0.045",
+    "after_stop": "pause_then_reset",
+    "latch": [
+     0.05,
+     0.12
+    ],
+    "margin": 10
+   },
+   "whole": {
+    "sharpe": 0.3443239691642816,
+    "max_drawdown": 0.14231300605202912,
+    "total_return": 0.18933481591234624,
+    "loss_stop_share": 0.0
+   },
+   "years": {
+    "2021": {
+     "sharpe": -0.14477087850317866,
+     "max_drawdown": 0.06767383554625717,
+     "total_return": -0.011983239819701064,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": -2.1738535004934705,
+     "max_drawdown": 0.022926281949679606,
+     "total_return": -0.022926281949679606,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 1.027575856889861,
+     "max_drawdown": 0.1423130060520289,
+     "total_return": 0.21434487337729147,
+     "loss_stop_share": 0.0
+    },
+    "2024": {
+     "sharpe": 0.5961889385419297,
+     "max_drawdown": 0.07319362259908058,
+     "total_return": 0.07065968044997262,
+     "loss_stop_share": 0.0
+    },
+    "2025": {
+     "sharpe": -0.44006195927311664,
+     "max_drawdown": 0.0821589177872073,
+     "total_return": -0.05241321091538831,
+     "loss_stop_share": 0.0
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 74,
+     "stops": 6,
+     "liquidations": 0,
+     "entries": 34
+    },
+    "ETHUSDT": {
+     "fills": 122,
+     "stops": 18,
+     "liquidations": 0,
+     "entries": 54
+    },
+    "latch_trips": 3
+   }
+  },
+  "1.5x stop0.08@6x pause latch0.03/0.12": {
+   "setting": {
+    "multiple": 1.5,
+    "stop": "0.08",
+    "after_stop": "pause",
+    "latch": [
+     0.03,
+     0.12
+    ],
+    "margin": 6
+   },
+   "whole": {
+    "sharpe": 0.60071272737998,
+    "max_drawdown": 0.23052837611403898,
+    "total_return": 0.5706794835127744,
+    "loss_stop_share": 0.004759071980963712
+   },
+   "years": {
+    "2021": {
+     "sharpe": 0.2759045400253798,
+     "max_drawdown": 0.12846549167819377,
+     "total_return": 0.0344198545010892,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": -0.5161854554258734,
+     "max_drawdown": 0.027853818711994216,
+     "total_return": -0.011614624387809358,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.5249123051312198,
+     "max_drawdown": 0.23052837611403854,
+     "total_return": 0.09667961205401565,
+     "loss_stop_share": 0.01818181818181818
+    },
+    "2024": {
+     "sharpe": 1.2933451361337416,
+     "max_drawdown": 0.1810456352896005,
+     "total_return": 0.3130837723173012,
+     "loss_stop_share": 0.010869565217391304
+    },
+    "2025": {
+     "sharpe": 0.5456984022827183,
+     "max_drawdown": 0.10837970592009516,
+     "total_return": 0.06682260262667028,
+     "loss_stop_share": 0.0
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 131,
+     "stops": 2,
+     "liquidations": 0,
+     "entries": 61
+    },
+    "ETHUSDT": {
+     "fills": 301,
+     "stops": 29,
+     "liquidations": 0,
+     "entries": 132
+    },
+    "latch_trips": 24
+   }
+  },
+  "1.5x stop0.08@6x pause latch0.05/0.12": {
+   "setting": {
+    "multiple": 1.5,
+    "stop": "0.08",
+    "after_stop": "pause",
+    "latch": [
+     0.05,
+     0.12
+    ],
+    "margin": 6
+   },
+   "whole": {
+    "sharpe": 0.5156450505424249,
+    "max_drawdown": 0.21895725556259527,
+    "total_return": 0.4639938801011001,
+    "loss_stop_share": 0.00594883997620464
+   },
+   "years": {
+    "2021": {
+     "sharpe": 0.10607592601345833,
+     "max_drawdown": 0.13212807148811612,
+     "total_return": 0.00033132904209076663,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": -1.2795646325421615,
+     "max_drawdown": 0.02737647418886202,
+     "total_return": -0.024679343130681874,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.45766564004098464,
+     "max_drawdown": 0.21679679332869017,
+     "total_return": 0.08115754407441766,
+     "loss_stop_share": 0.02181818181818182
+    },
+    "2024": {
+     "sharpe": 1.2981596719450976,
+     "max_drawdown": 0.18297220471070497,
+     "total_return": 0.31065698256390695,
+     "loss_stop_share": 0.014492753623188406
+    },
+    "2025": {
+     "sharpe": 0.4836833348324812,
+     "max_drawdown": 0.11825068115682613,
+     "total_return": 0.05893655250674468,
+     "loss_stop_share": 0.0
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 92,
+     "stops": 2,
+     "liquidations": 0,
+     "entries": 43
+    },
+    "ETHUSDT": {
+     "fills": 254,
+     "stops": 26,
+     "liquidations": 0,
+     "entries": 106
+    },
+    "latch_trips": 7
+   }
+  },
+  "1.5x stop0.08@6x pause_then_reset latch0.03/0.12": {
+   "setting": {
+    "multiple": 1.5,
+    "stop": "0.08",
+    "after_stop": "pause_then_reset",
+    "latch": [
+     0.03,
+     0.12
+    ],
+    "margin": 6
+   },
+   "whole": {
+    "sharpe": 0.5857228348102799,
+    "max_drawdown": 0.2253963918680174,
+    "total_return": 0.41823046262240693,
+    "loss_stop_share": 0.00297441998810232
+   },
+   "years": {
+    "2021": {
+     "sharpe": -0.2746920467454506,
+     "max_drawdown": 0.05545209059727396,
+     "total_return": -0.02130649142124552,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": -1.2676638967344365,
+     "max_drawdown": 0.020884711932092737,
+     "total_return": -0.020884711932092737,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.42811437931392726,
+     "max_drawdown": 0.2253963918680174,
+     "total_return": 0.07151180871306506,
+     "loss_stop_share": 0.01818181818181818
+    },
+    "2024": {
+     "sharpe": 1.4738465465493265,
+     "max_drawdown": 0.07295796617215267,
+     "total_return": 0.25384639267967946,
+     "loss_stop_share": 0.0
+    },
+    "2025": {
+     "sharpe": 0.8632161972646217,
+     "max_drawdown": 0.07615958662628142,
+     "total_return": 0.10160265395060031,
+     "loss_stop_share": 0.0
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 97,
+     "stops": 2,
+     "liquidations": 0,
+     "entries": 46
+    },
+    "ETHUSDT": {
+     "fills": 171,
+     "stops": 11,
+     "liquidations": 0,
+     "entries": 73
+    },
+    "latch_trips": 13
+   }
+  },
+  "1.5x stop0.08@6x pause_then_reset latch0.05/0.12": {
+   "setting": {
+    "multiple": 1.5,
+    "stop": "0.08",
+    "after_stop": "pause_then_reset",
+    "latch": [
+     0.05,
+     0.12
+    ],
+    "margin": 6
+   },
+   "whole": {
+    "sharpe": 0.47855225032756615,
+    "max_drawdown": 0.195704328166598,
+    "total_return": 0.33382223236910935,
+    "loss_stop_share": 0.000594883997620464
+   },
+   "years": {
+    "2021": {
+     "sharpe": -0.47953618818574895,
+     "max_drawdown": 0.06968126583929257,
+     "total_return": -0.03605005424443686,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": -1.2137996711528196,
+     "max_drawdown": 0.020386118271231934,
+     "total_return": -0.02018562403982005,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.616347035222891,
+     "max_drawdown": 0.19570432816659833,
+     "total_return": 0.1174556371919433,
+     "loss_stop_share": 0.0036363636363636364
+    },
+    "2024": {
+     "sharpe": 1.288822760291821,
+     "max_drawdown": 0.09635789043141108,
+     "total_return": 0.21888896949801784,
+     "loss_stop_share": 0.0
+    },
+    "2025": {
+     "sharpe": 0.3331278703459942,
+     "max_drawdown": 0.12666064431163537,
+     "total_return": 0.036824435712867754,
+     "loss_stop_share": 0.0
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 91,
+     "stops": 3,
+     "liquidations": 0,
+     "entries": 42
+    },
+    "ETHUSDT": {
+     "fills": 150,
+     "stops": 11,
+     "liquidations": 0,
+     "entries": 59
+    },
+    "latch_trips": 2
+   }
+  },
+  "1.5x stop0.12@4x pause latch0.03/0.12": {
+   "setting": {
+    "multiple": 1.5,
+    "stop": "0.12",
+    "after_stop": "pause",
+    "latch": [
+     0.03,
+     0.12
+    ],
+    "margin": 4
+   },
+   "whole": {
+    "sharpe": 0.41573909762572964,
+    "max_drawdown": 0.2479395781369058,
+    "total_return": 0.31790928057644186,
+    "loss_stop_share": 0.004164187983343248
+   },
+   "years": {
+    "2021": {
+     "sharpe": 0.26561599520608037,
+     "max_drawdown": 0.13194858479017535,
+     "total_return": 0.03277513504133456,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": -0.7584963595390339,
+     "max_drawdown": 0.03453639104006101,
+     "total_return": -0.018383142057862956,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": -0.014313429143903024,
+     "max_drawdown": 0.2476850036139201,
+     "total_return": -0.024135421685465674,
+     "loss_stop_share": 0.02181818181818182
+    },
+    "2024": {
+     "sharpe": 1.0343741647270301,
+     "max_drawdown": 0.15144273793898377,
+     "total_return": 0.21288474543398417,
+     "loss_stop_share": 0.0036231884057971015
+    },
+    "2025": {
+     "sharpe": 0.8065637104131183,
+     "max_drawdown": 0.09661101462583344,
+     "total_return": 0.09831937879366026,
+     "loss_stop_share": 0.0
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 57,
+     "stops": 1,
+     "liquidations": 0,
+     "entries": 26
+    },
+    "ETHUSDT": {
+     "fills": 281,
+     "stops": 14,
+     "liquidations": 0,
+     "entries": 120
+    },
+    "latch_trips": 20
+   }
+  },
+  "1.5x stop0.12@4x pause latch0.05/0.12": {
+   "setting": {
+    "multiple": 1.5,
+    "stop": "0.12",
+    "after_stop": "pause",
+    "latch": [
+     0.05,
+     0.12
+    ],
+    "margin": 4
+   },
+   "whole": {
+    "sharpe": 0.442757114664101,
+    "max_drawdown": 0.23698247482971735,
+    "total_return": 0.36262038804643915,
+    "loss_stop_share": 0.002379535990481856
+   },
+   "years": {
+    "2021": {
+     "sharpe": 0.040218310626551186,
+     "max_drawdown": 0.1416127562231393,
+     "total_return": -0.012889624783792186,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": -1.4407233039955945,
+     "max_drawdown": 0.03187992285899388,
+     "total_return": -0.029537473860357544,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.47349329824810077,
+     "max_drawdown": 0.216275058710509,
+     "total_return": 0.08542098756755045,
+     "loss_stop_share": 0.014545454545454545
+    },
+    "2024": {
+     "sharpe": 1.2700060437260492,
+     "max_drawdown": 0.14859560309103204,
+     "total_return": 0.2756234893556271,
+     "loss_stop_share": 0.0
+    },
+    "2025": {
+     "sharpe": 0.2730885703024031,
+     "max_drawdown": 0.12066015514841166,
+     "total_return": 0.02732929739591783,
+     "loss_stop_share": 0.0
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 96,
+     "stops": 2,
+     "liquidations": 0,
+     "entries": 45
+    },
+    "ETHUSDT": {
+     "fills": 240,
+     "stops": 13,
+     "liquidations": 0,
+     "entries": 99
+    },
+    "latch_trips": 6
+   }
+  },
+  "1.5x stop0.12@4x pause_then_reset latch0.03/0.12": {
+   "setting": {
+    "multiple": 1.5,
+    "stop": "0.12",
+    "after_stop": "pause_then_reset",
+    "latch": [
+     0.03,
+     0.12
+    ],
+    "margin": 4
+   },
+   "whole": {
+    "sharpe": 0.5835071131004854,
+    "max_drawdown": 0.21813267313347173,
+    "total_return": 0.45685911572842475,
+    "loss_stop_share": 0.001189767995240928
+   },
+   "years": {
+    "2021": {
+     "sharpe": -0.8507087628704654,
+     "max_drawdown": 0.06983219681535757,
+     "total_return": -0.06511144699550109,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": -1.4239133861199202,
+     "max_drawdown": 0.02531721544599219,
+     "total_return": -0.02531721544599219,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.49455728472629795,
+     "max_drawdown": 0.21813267313347173,
+     "total_return": 0.08638959056404616,
+     "loss_stop_share": 0.0036363636363636364
+    },
+    "2024": {
+     "sharpe": 1.3418382206127304,
+     "max_drawdown": 0.1509321709646898,
+     "total_return": 0.2917296139502319,
+     "loss_stop_share": 0.0036231884057971015
+    },
+    "2025": {
+     "sharpe": 1.0765888792541025,
+     "max_drawdown": 0.08914597305445349,
+     "total_return": 0.1392976622430484,
+     "loss_stop_share": 0.0
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 109,
+     "stops": 2,
+     "liquidations": 0,
+     "entries": 50
+    },
+    "ETHUSDT": {
+     "fills": 191,
+     "stops": 7,
+     "liquidations": 0,
+     "entries": 80
+    },
+    "latch_trips": 14
+   }
+  },
+  "1.5x stop0.12@4x pause_then_reset latch0.05/0.12": {
+   "setting": {
+    "multiple": 1.5,
+    "stop": "0.12",
+    "after_stop": "pause_then_reset",
+    "latch": [
+     0.05,
+     0.12
+    ],
+    "margin": 4
+   },
+   "whole": {
+    "sharpe": 0.5671707034514619,
+    "max_drawdown": 0.21034358676722187,
+    "total_return": 0.45733046311376735,
+    "loss_stop_share": 0.003569303985722784
+   },
+   "years": {
+    "2021": {
+     "sharpe": -0.8670275990396378,
+     "max_drawdown": 0.07106199776881317,
+     "total_return": -0.06634748938475954,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": -1.4239101108957537,
+     "max_drawdown": 0.02535073236059715,
+     "total_return": -0.02535073236059715,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.554028099930718,
+     "max_drawdown": 0.2103435867672223,
+     "total_return": 0.10360408035523005,
+     "loss_stop_share": 0.014545454545454545
+    },
+    "2024": {
+     "sharpe": 1.4131373889486474,
+     "max_drawdown": 0.17006523160182274,
+     "total_return": 0.3297752022333189,
+     "loss_stop_share": 0.007246376811594203
+    },
+    "2025": {
+     "sharpe": 0.7406714162137193,
+     "max_drawdown": 0.09370573275639937,
+     "total_return": 0.09127168195626711,
+     "loss_stop_share": 0.0
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 89,
+     "stops": 2,
+     "liquidations": 0,
+     "entries": 41
+    },
+    "ETHUSDT": {
+     "fills": 175,
+     "stops": 6,
+     "liquidations": 0,
+     "entries": 71
+    },
+    "latch_trips": 4
+   }
+  },
+  "2x stop0.045@10x pause latch0.03/0.12": {
+   "setting": {
+    "multiple": 2.0,
+    "stop": "0.045",
+    "after_stop": "pause",
+    "latch": [
+     0.03,
+     0.12
+    ],
+    "margin": 10
+   },
+   "whole": {
+    "sharpe": 0.6263097560076983,
+    "max_drawdown": 0.2549917316659084,
+    "total_return": 0.878116680911482,
+    "loss_stop_share": 0.02676977989292088
+   },
+   "years": {
+    "2021": {
+     "sharpe": 0.02227362449294818,
+     "max_drawdown": 0.1688388901906107,
+     "total_return": -0.02923845937517544,
+     "loss_stop_share": 0.007518796992481203
+    },
+    "2022": {
+     "sharpe": -0.7547128265925528,
+     "max_drawdown": 0.044575291444025944,
+     "total_return": -0.023520547664466318,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.8080853231012414,
+     "max_drawdown": 0.25499173166590916,
+     "total_return": 0.23468114617441804,
+     "loss_stop_share": 0.07272727272727272
+    },
+    "2024": {
+     "sharpe": 1.346235613186791,
+     "max_drawdown": 0.22936955132983372,
+     "total_return": 0.4709477708523928,
+     "loss_stop_share": 0.043478260869565216
+    },
+    "2025": {
+     "sharpe": 0.5392011371019914,
+     "max_drawdown": 0.13666432467452594,
+     "total_return": 0.09092483805596907,
+     "loss_stop_share": 0.0
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 224,
+     "stops": 17,
+     "liquidations": 0,
+     "entries": 109
+    },
+    "ETHUSDT": {
+     "fills": 480,
+     "stops": 88,
+     "liquidations": 0,
+     "entries": 234
+    },
+    "latch_trips": 58
+   }
+  },
+  "2x stop0.045@10x pause latch0.05/0.12": {
+   "setting": {
+    "multiple": 2.0,
+    "stop": "0.045",
+    "after_stop": "pause",
+    "latch": [
+     0.05,
+     0.12
+    ],
+    "margin": 10
+   },
+   "whole": {
+    "sharpe": 0.5409358370197747,
+    "max_drawdown": 0.2344043946275297,
+    "total_return": 0.693610322431474,
+    "loss_stop_share": 0.024985127900059488
+   },
+   "years": {
+    "2021": {
+     "sharpe": -0.03336925098975572,
+     "max_drawdown": 0.16542772445013387,
+     "total_return": -0.044683136213457875,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": -0.7976297004042443,
+     "max_drawdown": 0.04429169956847745,
+     "total_return": -0.02454296633029729,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.7906779082767473,
+     "max_drawdown": 0.23440439462753015,
+     "total_return": 0.22476193260748012,
+     "loss_stop_share": 0.04
+    },
+    "2024": {
+     "sharpe": 1.1459151387886475,
+     "max_drawdown": 0.23429832845138832,
+     "total_return": 0.39347839362066916,
+     "loss_stop_share": 0.05434782608695652
+    },
+    "2025": {
+     "sharpe": 0.41745548317756614,
+     "max_drawdown": 0.1516145998855989,
+     "total_return": 0.06489303023613235,
+     "loss_stop_share": 0.004366812227074236
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 182,
+     "stops": 18,
+     "liquidations": 0,
+     "entries": 87
+    },
+    "ETHUSDT": {
+     "fills": 396,
+     "stops": 72,
+     "liquidations": 0,
+     "entries": 184
+    },
+    "latch_trips": 17
+   }
+  },
+  "2x stop0.045@10x pause_then_reset latch0.03/0.12": {
+   "setting": {
+    "multiple": 2.0,
+    "stop": "0.045",
+    "after_stop": "pause_then_reset",
+    "latch": [
+     0.03,
+     0.12
+    ],
+    "margin": 10
+   },
+   "whole": {
+    "sharpe": 0.4822769762554956,
+    "max_drawdown": 0.22672963431644355,
+    "total_return": 0.3914542968463628,
+    "loss_stop_share": 0.00297441998810232
+   },
+   "years": {
+    "2021": {
+     "sharpe": -0.219492498009032,
+     "max_drawdown": 0.09200366372801105,
+     "total_return": -0.027695851394190618,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": -0.6082300169920442,
+     "max_drawdown": 0.03187917974965471,
+     "total_return": -0.012223469064265968,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 1.1107582286839326,
+     "max_drawdown": 0.22672963431644277,
+     "total_return": 0.32873376343049854,
+     "loss_stop_share": 0.01818181818181818
+    },
+    "2024": {
+     "sharpe": 0.8690787005465315,
+     "max_drawdown": 0.08000559771562743,
+     "total_return": 0.14910049852557594,
+     "loss_stop_share": 0.0
+    },
+    "2025": {
+     "sharpe": -0.4365615258025359,
+     "max_drawdown": 0.10373592921998598,
+     "total_return": -0.05111819204611967,
+     "loss_stop_share": 0.0
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 133,
+     "stops": 8,
+     "liquidations": 0,
+     "entries": 65
+    },
+    "ETHUSDT": {
+     "fills": 169,
+     "stops": 22,
+     "liquidations": 0,
+     "entries": 82
+    },
+    "latch_trips": 19
+   }
+  },
+  "2x stop0.045@10x pause_then_reset latch0.05/0.12": {
+   "setting": {
+    "multiple": 2.0,
+    "stop": "0.045",
+    "after_stop": "pause_then_reset",
+    "latch": [
+     0.05,
+     0.12
+    ],
+    "margin": 10
+   },
+   "whole": {
+    "sharpe": 0.48539907052705067,
+    "max_drawdown": 0.18867599170655025,
+    "total_return": 0.4145900257000683,
+    "loss_stop_share": 0.002379535990481856
+   },
+   "years": {
+    "2021": {
+     "sharpe": -0.36413396614813526,
+     "max_drawdown": 0.10615907972637606,
+     "total_return": -0.042853808701551976,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": -0.6043987131676671,
+     "max_drawdown": 0.03219714039367216,
+     "total_return": -0.012236707526869672,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 1.0692589487248103,
+     "max_drawdown": 0.1886759917065508,
+     "total_return": 0.31565116001610605,
+     "loss_stop_share": 0.014545454545454545
+    },
+    "2024": {
+     "sharpe": 0.9508945669471662,
+     "max_drawdown": 0.07708218705422376,
+     "total_return": 0.16714722627989342,
+     "loss_stop_share": 0.0
+    },
+    "2025": {
+     "sharpe": -0.08481715265899542,
+     "max_drawdown": 0.10521589061536862,
+     "total_return": -0.025609506899463286,
+     "loss_stop_share": 0.0
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 122,
+     "stops": 8,
+     "liquidations": 0,
+     "entries": 58
+    },
+    "ETHUSDT": {
+     "fills": 155,
+     "stops": 22,
+     "liquidations": 0,
+     "entries": 72
+    },
+    "latch_trips": 6
+   }
+  },
+  "2x stop0.08@6x pause latch0.03/0.12": {
+   "setting": {
+    "multiple": 2.0,
+    "stop": "0.08",
+    "after_stop": "pause",
+    "latch": [
+     0.03,
+     0.12
+    ],
+    "margin": 6
+   },
+   "whole": {
+    "sharpe": 0.5790340428088544,
+    "max_drawdown": 0.26506265827629394,
+    "total_return": 0.7761385451209621,
+    "loss_stop_share": 0.02795954788816181
+   },
+   "years": {
+    "2021": {
+     "sharpe": -0.09499584346165171,
+     "max_drawdown": 0.16976341398781358,
+     "total_return": -0.058028820935553616,
+     "loss_stop_share": 0.022556390977443608
+    },
+    "2022": {
+     "sharpe": -0.7024311031002648,
+     "max_drawdown": 0.04230835537081701,
+     "total_return": -0.021471823515463506,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.7637287737074188,
+     "max_drawdown": 0.2650626582762933,
+     "total_return": 0.2212037308010446,
+     "loss_stop_share": 0.09090909090909091
+    },
+    "2024": {
+     "sharpe": 1.421384842067114,
+     "max_drawdown": 0.24622932145419785,
+     "total_return": 0.517127747921412,
+     "loss_stop_share": 0.043478260869565216
+    },
+    "2025": {
+     "sharpe": 0.3085765451820037,
+     "max_drawdown": 0.15329852908501773,
+     "total_return": 0.04005334371436753,
+     "loss_stop_share": 0.004366812227074236
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 236,
+     "stops": 2,
+     "liquidations": 0,
+     "entries": 116
+    },
+    "ETHUSDT": {
+     "fills": 403,
+     "stops": 33,
+     "liquidations": 0,
+     "entries": 198
+    },
+    "latch_trips": 64
+   }
+  },
+  "2x stop0.08@6x pause latch0.05/0.12": {
+   "setting": {
+    "multiple": 2.0,
+    "stop": "0.08",
+    "after_stop": "pause",
+    "latch": [
+     0.05,
+     0.12
+    ],
+    "margin": 6
+   },
+   "whole": {
+    "sharpe": 0.5572397327741476,
+    "max_drawdown": 0.2586021819096922,
+    "total_return": 0.7416238202045191,
+    "loss_stop_share": 0.032123735871505056
+   },
+   "years": {
+    "2021": {
+     "sharpe": 0.16917550657934216,
+     "max_drawdown": 0.18833899544979393,
+     "total_return": 0.006549793297975004,
+     "loss_stop_share": 0.0037593984962406013
+    },
+    "2022": {
+     "sharpe": -0.7981037206119759,
+     "max_drawdown": 0.0462582191913018,
+     "total_return": -0.025683963999436177,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.7418432204427249,
+     "max_drawdown": 0.25309953284886233,
+     "total_return": 0.20853600123615412,
+     "loss_stop_share": 0.05818181818181818
+    },
+    "2024": {
+     "sharpe": 1.1030012151100597,
+     "max_drawdown": 0.22758855883018936,
+     "total_return": 0.37665423236252304,
+     "loss_stop_share": 0.050724637681159424
+    },
+    "2025": {
+     "sharpe": 0.4311363116777454,
+     "max_drawdown": 0.14429774013058405,
+     "total_return": 0.06741862137135324,
+     "loss_stop_share": 0.0
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 165,
+     "stops": 4,
+     "liquidations": 0,
+     "entries": 79
+    },
+    "ETHUSDT": {
+     "fills": 336,
+     "stops": 31,
+     "liquidations": 0,
+     "entries": 156
+    },
+    "latch_trips": 17
+   }
+  },
+  "2x stop0.08@6x pause_then_reset latch0.03/0.12": {
+   "setting": {
+    "multiple": 2.0,
+    "stop": "0.08",
+    "after_stop": "pause_then_reset",
+    "latch": [
+     0.03,
+     0.12
+    ],
+    "margin": 6
+   },
+   "whole": {
+    "sharpe": 0.6612067438520441,
+    "max_drawdown": 0.2687760002996825,
+    "total_return": 0.7949106952275415,
+    "loss_stop_share": 0.019631171921475312
+   },
+   "years": {
+    "2021": {
+     "sharpe": -0.5179480016120166,
+     "max_drawdown": 0.1010119556866631,
+     "total_return": -0.059989559305578255,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": -0.6356330738519038,
+     "max_drawdown": 0.04010501094785657,
+     "total_return": -0.01872762156560981,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.759786642695414,
+     "max_drawdown": 0.2687760002996835,
+     "total_return": 0.21651164186422545,
+     "loss_stop_share": 0.08
+    },
+    "2024": {
+     "sharpe": 1.5592974488416886,
+     "max_drawdown": 0.10523095206858124,
+     "total_return": 0.4915716230632021,
+     "loss_stop_share": 0.0
+    },
+    "2025": {
+     "sharpe": 0.5169588990644715,
+     "max_drawdown": 0.12551151110725633,
+     "total_return": 0.07240841226858152,
+     "loss_stop_share": 0.0
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 215,
+     "stops": 2,
+     "liquidations": 0,
+     "entries": 107
+    },
+    "ETHUSDT": {
+     "fills": 207,
+     "stops": 10,
+     "liquidations": 0,
+     "entries": 99
+    },
+    "latch_trips": 40
+   }
+  },
+  "2x stop0.08@6x pause_then_reset latch0.05/0.12": {
+   "setting": {
+    "multiple": 2.0,
+    "stop": "0.08",
+    "after_stop": "pause_then_reset",
+    "latch": [
+     0.05,
+     0.12
+    ],
+    "margin": 6
+   },
+   "whole": {
+    "sharpe": 0.6632196655226965,
+    "max_drawdown": 0.2032138977719753,
+    "total_return": 0.777696466880303,
+    "loss_stop_share": 0.003569303985722784
+   },
+   "years": {
+    "2021": {
+     "sharpe": -0.6414850076933882,
+     "max_drawdown": 0.1137533156050391,
+     "total_return": -0.07331232975584279,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": -0.60647472952944,
+     "max_drawdown": 0.03995805457813284,
+     "total_return": -0.01775956814899582,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.859754060221723,
+     "max_drawdown": 0.20321389777197651,
+     "total_return": 0.24489972500741874,
+     "loss_stop_share": 0.02181818181818182
+    },
+    "2024": {
+     "sharpe": 1.2056928621582232,
+     "max_drawdown": 0.13342914807334183,
+     "total_return": 0.3468473275875994,
+     "loss_stop_share": 0.0
+    },
+    "2025": {
+     "sharpe": 0.9988799678362394,
+     "max_drawdown": 0.11315492488462708,
+     "total_return": 0.1648062109467241,
+     "loss_stop_share": 0.0
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 159,
+     "stops": 4,
+     "liquidations": 0,
+     "entries": 75
+    },
+    "ETHUSDT": {
+     "fills": 170,
+     "stops": 12,
+     "liquidations": 0,
+     "entries": 73
+    },
+    "latch_trips": 9
+   }
+  },
+  "2x stop0.12@4x pause latch0.03/0.12": {
+   "setting": {
+    "multiple": 2.0,
+    "stop": "0.12",
+    "after_stop": "pause",
+    "latch": [
+     0.03,
+     0.12
+    ],
+    "margin": 4
+   },
+   "whole": {
+    "sharpe": 0.4546886762701548,
+    "max_drawdown": 0.2689618074609018,
+    "total_return": 0.4979694903880394,
+    "loss_stop_share": 0.03509815585960738
+   },
+   "years": {
+    "2021": {
+     "sharpe": -0.08574206059288474,
+     "max_drawdown": 0.1798338758446334,
+     "total_return": -0.06146754910023,
+     "loss_stop_share": 0.045112781954887216
+    },
+    "2022": {
+     "sharpe": -0.9594675220987383,
+     "max_drawdown": 0.050698725173339954,
+     "total_return": -0.030731574258658356,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.42794611100555724,
+     "max_drawdown": 0.2671423784018123,
+     "total_return": 0.08904997090340094,
+     "loss_stop_share": 0.10909090909090909
+    },
+    "2024": {
+     "sharpe": 1.0158321586983907,
+     "max_drawdown": 0.26896180746090215,
+     "total_return": 0.3047218250378618,
+     "loss_stop_share": 0.05434782608695652
+    },
+    "2025": {
+     "sharpe": 0.8767492156632044,
+     "max_drawdown": 0.14093187366759907,
+     "total_return": 0.15889442576785906,
+     "loss_stop_share": 0.0
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 179,
+     "stops": 1,
+     "liquidations": 0,
+     "entries": 83
+    },
+    "ETHUSDT": {
+     "fills": 380,
+     "stops": 15,
+     "liquidations": 0,
+     "entries": 184
+    },
+    "latch_trips": 58
+   }
+  },
+  "2x stop0.12@4x pause latch0.05/0.12": {
+   "setting": {
+    "multiple": 2.0,
+    "stop": "0.12",
+    "after_stop": "pause",
+    "latch": [
+     0.05,
+     0.12
+    ],
+    "margin": 4
+   },
+   "whole": {
+    "sharpe": 0.6028245128666331,
+    "max_drawdown": 0.26538783263008525,
+    "total_return": 0.8541430662432905,
+    "loss_stop_share": 0.02558001189767995
+   },
+   "years": {
+    "2021": {
+     "sharpe": 0.2892569294962081,
+     "max_drawdown": 0.16845673140206496,
+     "total_return": 0.04136136925399381,
+     "loss_stop_share": 0.0037593984962406013
+    },
+    "2022": {
+     "sharpe": -0.8977214778520975,
+     "max_drawdown": 0.053653960914142984,
+     "total_return": -0.03105491249563519,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.7804283539415259,
+     "max_drawdown": 0.24083507774111945,
+     "total_return": 0.22608754267471043,
+     "loss_stop_share": 0.05090909090909091
+    },
+    "2024": {
+     "sharpe": 1.150727432139611,
+     "max_drawdown": 0.26538783263008536,
+     "total_return": 0.4004767055339491,
+     "loss_stop_share": 0.06521739130434782
+    },
+    "2025": {
+     "sharpe": 0.4423420279177013,
+     "max_drawdown": 0.152437673238759,
+     "total_return": 0.07015144904312631,
+     "loss_stop_share": 0.004366812227074236
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 169,
+     "stops": 2,
+     "liquidations": 0,
+     "entries": 81
+    },
+    "ETHUSDT": {
+     "fills": 338,
+     "stops": 14,
+     "liquidations": 0,
+     "entries": 159
+    },
+    "latch_trips": 19
+   }
+  },
+  "2x stop0.12@4x pause_then_reset latch0.03/0.12": {
+   "setting": {
+    "multiple": 2.0,
+    "stop": "0.12",
+    "after_stop": "pause_then_reset",
+    "latch": [
+     0.03,
+     0.12
+    ],
+    "margin": 4
+   },
+   "whole": {
+    "sharpe": 0.617704448923116,
+    "max_drawdown": 0.2634304600157312,
+    "total_return": 0.7231122950237969,
+    "loss_stop_share": 0.014277215942891136
+   },
+   "years": {
+    "2021": {
+     "sharpe": -1.0064307662597392,
+     "max_drawdown": 0.12144682381103655,
+     "total_return": -0.11249179911867124,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": -0.8459001590004485,
+     "max_drawdown": 0.04232008564342604,
+     "total_return": -0.024365739686641574,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.7246590084922647,
+     "max_drawdown": 0.2634304600157318,
+     "total_return": 0.20277704309541322,
+     "loss_stop_share": 0.07272727272727272
+    },
+    "2024": {
+     "sharpe": 1.6732142132416925,
+     "max_drawdown": 0.10055647258989098,
+     "total_return": 0.5392346306821876,
+     "loss_stop_share": 0.0
+    },
+    "2025": {
+     "sharpe": 0.5094610956642024,
+     "max_drawdown": 0.11918327675913343,
+     "total_return": 0.0748904585132828,
+     "loss_stop_share": 0.0
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 200,
+     "stops": 2,
+     "liquidations": 0,
+     "entries": 99
+    },
+    "ETHUSDT": {
+     "fills": 231,
+     "stops": 7,
+     "liquidations": 0,
+     "entries": 108
+    },
+    "latch_trips": 37
+   }
+  },
+  "2x stop0.12@4x pause_then_reset latch0.05/0.12": {
+   "setting": {
+    "multiple": 2.0,
+    "stop": "0.12",
+    "after_stop": "pause_then_reset",
+    "latch": [
+     0.05,
+     0.12
+    ],
+    "margin": 4
+   },
+   "whole": {
+    "sharpe": 0.5809855363725978,
+    "max_drawdown": 0.23033559501420586,
+    "total_return": 0.6952869366030066,
+    "loss_stop_share": 0.0148720999405116
+   },
+   "years": {
+    "2021": {
+     "sharpe": -1.0437384097424507,
+     "max_drawdown": 0.12576272721661041,
+     "total_return": -0.11685169419442998,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": -0.8334079201469297,
+     "max_drawdown": 0.042098089146653694,
+     "total_return": -0.024050924332883472,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.7631132667852871,
+     "max_drawdown": 0.23033559501420542,
+     "total_return": 0.2123795777776405,
+     "loss_stop_share": 0.04
+    },
+    "2024": {
+     "sharpe": 1.4627728951585866,
+     "max_drawdown": 0.2182381599227443,
+     "total_return": 0.5281686728923543,
+     "loss_stop_share": 0.03985507246376811
+    },
+    "2025": {
+     "sharpe": 0.41461988302633923,
+     "max_drawdown": 0.13796538784294055,
+     "total_return": 0.0616283648103797,
+     "loss_stop_share": 0.0
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 161,
+     "stops": 2,
+     "liquidations": 0,
+     "entries": 77
+    },
+    "ETHUSDT": {
+     "fills": 242,
+     "stops": 7,
+     "liquidations": 0,
+     "entries": 109
+    },
+    "latch_trips": 11
+   }
+  },
+  "2.5x stop0.045@10x pause latch0.03/0.12": {
+   "setting": {
+    "multiple": 2.5,
+    "stop": "0.045",
+    "after_stop": "pause",
+    "latch": [
+     0.03,
+     0.12
+    ],
+    "margin": 10
+   },
+   "whole": {
+    "sharpe": 0.5008835703969038,
+    "max_drawdown": 0.38026421187759396,
+    "total_return": 0.7310431775014616,
+    "loss_stop_share": 0.1207614515169542
+   },
+   "years": {
+    "2021": {
+     "sharpe": -0.04016685833744789,
+     "max_drawdown": 0.2870074468804107,
+     "total_return": -0.08006995738015188,
+     "loss_stop_share": 0.16165413533834586
+    },
+    "2022": {
+     "sharpe": -0.4924084836159751,
+     "max_drawdown": 0.06257289630746432,
+     "total_return": -0.02421980284369818,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.7181301911041563,
+     "max_drawdown": 0.33520086793708026,
+     "total_return": 0.24297457113291587,
+     "loss_stop_share": 0.2727272727272727
+    },
+    "2024": {
+     "sharpe": 1.271396822431968,
+     "max_drawdown": 0.31929591598399587,
+     "total_return": 0.526398700215732,
+     "loss_stop_share": 0.05434782608695652
+    },
+    "2025": {
+     "sharpe": 0.21094305386941192,
+     "max_drawdown": 0.1765028784486482,
+     "total_return": 0.016414535112146744,
+     "loss_stop_share": 0.017467248908296942
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 305,
+     "stops": 21,
+     "liquidations": 0,
+     "entries": 152
+    },
+    "ETHUSDT": {
+     "fills": 609,
+     "stops": 93,
+     "liquidations": 0,
+     "entries": 318
+    },
+    "latch_trips": 109
+   }
+  },
+  "2.5x stop0.045@10x pause latch0.05/0.12": {
+   "setting": {
+    "multiple": 2.5,
+    "stop": "0.045",
+    "after_stop": "pause",
+    "latch": [
+     0.05,
+     0.12
+    ],
+    "margin": 10
+   },
+   "whole": {
+    "sharpe": 0.424046428199577,
+    "max_drawdown": 0.3584596597762256,
+    "total_return": 0.5297751209975312,
+    "loss_stop_share": 0.1255205234979179
+   },
+   "years": {
+    "2021": {
+     "sharpe": -0.19420381162682168,
+     "max_drawdown": 0.23820366790075564,
+     "total_return": -0.136289967564455,
+     "loss_stop_share": 0.18421052631578946
+    },
+    "2022": {
+     "sharpe": -0.4368244868106542,
+     "max_drawdown": 0.05990013608221734,
+     "total_return": -0.02076971822487461,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.7431002658314885,
+     "max_drawdown": 0.3584596597762254,
+     "total_return": 0.253540573675207,
+     "loss_stop_share": 0.32
+    },
+    "2024": {
+     "sharpe": 0.9256107115136144,
+     "max_drawdown": 0.32001507299353005,
+     "total_return": 0.36869124753221283,
+     "loss_stop_share": 0.07608695652173914
+    },
+    "2025": {
+     "sharpe": 0.35037756147124144,
+     "max_drawdown": 0.19015827687810127,
+     "total_return": 0.054219169050310656,
+     "loss_stop_share": 0.008733624454148471
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 229,
+     "stops": 26,
+     "liquidations": 0,
+     "entries": 113
+    },
+    "ETHUSDT": {
+     "fills": 480,
+     "stops": 88,
+     "liquidations": 0,
+     "entries": 235
+    },
+    "latch_trips": 37
+   }
+  },
+  "2.5x stop0.045@10x pause_then_reset latch0.03/0.12": {
+   "setting": {
+    "multiple": 2.5,
+    "stop": "0.045",
+    "after_stop": "pause_then_reset",
+    "latch": [
+     0.03,
+     0.12
+    ],
+    "margin": 10
+   },
+   "whole": {
+    "sharpe": 0.5465698017332631,
+    "max_drawdown": 0.22065870971257295,
+    "total_return": 0.6019331305988707,
+    "loss_stop_share": 0.003569303985722784
+   },
+   "years": {
+    "2021": {
+     "sharpe": -0.22454657017203214,
+     "max_drawdown": 0.10989556230919573,
+     "total_return": -0.04565783654237188,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": -0.9351217366512025,
+     "max_drawdown": 0.05839590181618115,
+     "total_return": -0.03191332165151939,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 1.27930281057018,
+     "max_drawdown": 0.22065870971257218,
+     "total_return": 0.49502169901694604,
+     "loss_stop_share": 0.01818181818181818
+    },
+    "2024": {
+     "sharpe": 0.9138495075088557,
+     "max_drawdown": 0.10825511839395419,
+     "total_return": 0.18869020932737923,
+     "loss_stop_share": 0.0
+    },
+    "2025": {
+     "sharpe": -0.0422759739655186,
+     "max_drawdown": 0.1332021315193871,
+     "total_return": -0.024314510799431033,
+     "loss_stop_share": 0.0
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 172,
+     "stops": 10,
+     "liquidations": 0,
+     "entries": 89
+    },
+    "ETHUSDT": {
+     "fills": 186,
+     "stops": 21,
+     "liquidations": 0,
+     "entries": 96
+    },
+    "latch_trips": 34
+   }
+  },
+  "2.5x stop0.045@10x pause_then_reset latch0.05/0.12": {
+   "setting": {
+    "multiple": 2.5,
+    "stop": "0.045",
+    "after_stop": "pause_then_reset",
+    "latch": [
+     0.05,
+     0.12
+    ],
+    "margin": 10
+   },
+   "whole": {
+    "sharpe": 0.6068974738843779,
+    "max_drawdown": 0.23825600554233406,
+    "total_return": 0.7084587588044344,
+    "loss_stop_share": 0.00297441998810232
+   },
+   "years": {
+    "2021": {
+     "sharpe": -0.22492400690651976,
+     "max_drawdown": 0.11577391058540765,
+     "total_return": -0.04714499078570589,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": -0.9351314965963389,
+     "max_drawdown": 0.05848454536146708,
+     "total_return": -0.03196312989228367,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 1.1159020204894552,
+     "max_drawdown": 0.2382560055423344,
+     "total_return": 0.3472915574971127,
+     "loss_stop_share": 0.01818181818181818
+    },
+    "2024": {
+     "sharpe": 1.2119040050758276,
+     "max_drawdown": 0.10072980570650858,
+     "total_return": 0.3386467099405117,
+     "loss_stop_share": 0.0
+    },
+    "2025": {
+     "sharpe": 0.24734672273799319,
+     "max_drawdown": 0.12428125315038763,
+     "total_return": 0.026971085320853794,
+     "loss_stop_share": 0.0
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 149,
+     "stops": 10,
+     "liquidations": 0,
+     "entries": 74
+    },
+    "ETHUSDT": {
+     "fills": 158,
+     "stops": 23,
+     "liquidations": 0,
+     "entries": 77
+    },
+    "latch_trips": 9
+   }
+  },
+  "2.5x stop0.08@6x pause latch0.03/0.12": {
+   "setting": {
+    "multiple": 2.5,
+    "stop": "0.08",
+    "after_stop": "pause",
+    "latch": [
+     0.03,
+     0.12
+    ],
+    "margin": 6
+   },
+   "whole": {
+    "sharpe": 0.5956025629552483,
+    "max_drawdown": 0.37719185276842304,
+    "total_return": 1.0444064685253278,
+    "loss_stop_share": 0.10826888756692445
+   },
+   "years": {
+    "2021": {
+     "sharpe": 0.33398476170895885,
+     "max_drawdown": 0.2765916831634784,
+     "total_return": 0.054298077183185134,
+     "loss_stop_share": 0.09398496240601503
+    },
+    "2022": {
+     "sharpe": -0.7931360843079487,
+     "max_drawdown": 0.08072257137317085,
+     "total_return": -0.04278031946949157,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.6372633568702378,
+     "max_drawdown": 0.3353747239699012,
+     "total_return": 0.20321754469531284,
+     "loss_stop_share": 0.29454545454545455
+    },
+    "2024": {
+     "sharpe": 1.330200427342295,
+     "max_drawdown": 0.3220398604018143,
+     "total_return": 0.5704855078267257,
+     "loss_stop_share": 0.057971014492753624
+    },
+    "2025": {
+     "sharpe": 0.41334198163966884,
+     "max_drawdown": 0.20559575274823993,
+     "total_return": 0.0720477351787181,
+     "loss_stop_share": 0.013100436681222707
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 285,
+     "stops": 4,
+     "liquidations": 0,
+     "entries": 141
+    },
+    "ETHUSDT": {
+     "fills": 582,
+     "stops": 32,
+     "liquidations": 0,
+     "entries": 309
+    },
+    "latch_trips": 115
+   }
+  },
+  "2.5x stop0.08@6x pause latch0.05/0.12": {
+   "setting": {
+    "multiple": 2.5,
+    "stop": "0.08",
+    "after_stop": "pause",
+    "latch": [
+     0.05,
+     0.12
+    ],
+    "margin": 6
+   },
+   "whole": {
+    "sharpe": 0.37472013138308585,
+    "max_drawdown": 0.3645474007688122,
+    "total_return": 0.4051624366623392,
+    "loss_stop_share": 0.10767400356930398
+   },
+   "years": {
+    "2021": {
+     "sharpe": 0.02408580311229997,
+     "max_drawdown": 0.27727975499285584,
+     "total_return": -0.07128373527793308,
+     "loss_stop_share": 0.11278195488721804
+    },
+    "2022": {
+     "sharpe": -0.4453439475197773,
+     "max_drawdown": 0.06525377927624676,
+     "total_return": -0.022909443623439274,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.5258346107472364,
+     "max_drawdown": 0.3433858069927944,
+     "total_return": 0.14359097326363757,
+     "loss_stop_share": 0.2727272727272727
+    },
+    "2024": {
+     "sharpe": 0.7166004072971964,
+     "max_drawdown": 0.3196328776353692,
+     "total_return": 0.24362185763693667,
+     "loss_stop_share": 0.07971014492753623
+    },
+    "2025": {
+     "sharpe": 0.482839643238291,
+     "max_drawdown": 0.20744477424360497,
+     "total_return": 0.0888037276935214,
+     "loss_stop_share": 0.013100436681222707
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 161,
+     "stops": 6,
+     "liquidations": 0,
+     "entries": 76
+    },
+    "ETHUSDT": {
+     "fills": 427,
+     "stops": 35,
+     "liquidations": 0,
+     "entries": 214
+    },
+    "latch_trips": 44
+   }
+  },
+  "2.5x stop0.08@6x pause_then_reset latch0.03/0.12": {
+   "setting": {
+    "multiple": 2.5,
+    "stop": "0.08",
+    "after_stop": "pause_then_reset",
+    "latch": [
+     0.03,
+     0.12
+    ],
+    "margin": 6
+   },
+   "whole": {
+    "sharpe": 0.5658677026593342,
+    "max_drawdown": 0.30666224182642343,
+    "total_return": 0.7814055644798907,
+    "loss_stop_share": 0.03985722784057109
+   },
+   "years": {
+    "2021": {
+     "sharpe": -0.7183076846923792,
+     "max_drawdown": 0.1598592148594281,
+     "total_return": -0.1224006296072161,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": -0.7615458317630185,
+     "max_drawdown": 0.05782842897692331,
+     "total_return": -0.03113063732481114,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.7645034344129357,
+     "max_drawdown": 0.3066622418264239,
+     "total_return": 0.25683839389272256,
+     "loss_stop_share": 0.13818181818181818
+    },
+    "2024": {
+     "sharpe": 1.7154607216774296,
+     "max_drawdown": 0.15091753913630168,
+     "total_return": 0.6931626032829536,
+     "loss_stop_share": 0.0
+    },
+    "2025": {
+     "sharpe": 0.07089534599391069,
+     "max_drawdown": 0.18970565318591714,
+     "total_return": -0.01548310839119671,
+     "loss_stop_share": 0.004366812227074236
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 253,
+     "stops": 3,
+     "liquidations": 0,
+     "entries": 129
+    },
+    "ETHUSDT": {
+     "fills": 274,
+     "stops": 8,
+     "liquidations": 0,
+     "entries": 141
+    },
+    "latch_trips": 66
+   }
+  },
+  "2.5x stop0.08@6x pause_then_reset latch0.05/0.12": {
+   "setting": {
+    "multiple": 2.5,
+    "stop": "0.08",
+    "after_stop": "pause_then_reset",
+    "latch": [
+     0.05,
+     0.12
+    ],
+    "margin": 6
+   },
+   "whole": {
+    "sharpe": 0.5829096211361054,
+    "max_drawdown": 0.2932175832862961,
+    "total_return": 0.8411633838241088,
+    "loss_stop_share": 0.04045211183819155
+   },
+   "years": {
+    "2021": {
+     "sharpe": -0.7512247428315393,
+     "max_drawdown": 0.1739613941198923,
+     "total_return": -0.13464167136922267,
+     "loss_stop_share": 0.018796992481203006
+    },
+    "2022": {
+     "sharpe": -0.7272475445102796,
+     "max_drawdown": 0.05660655749482901,
+     "total_return": -0.029495995403115205,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.8328049776842329,
+     "max_drawdown": 0.2932175832862953,
+     "total_return": 0.2871915502441533,
+     "loss_stop_share": 0.10909090909090909
+    },
+    "2024": {
+     "sharpe": 1.4361156709122667,
+     "max_drawdown": 0.15532689736016303,
+     "total_return": 0.5860654117259065,
+     "loss_stop_share": 0.0
+    },
+    "2025": {
+     "sharpe": 0.42929894182863165,
+     "max_drawdown": 0.1580490412930523,
+     "total_return": 0.07382805228488598,
+     "loss_stop_share": 0.004366812227074236
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 177,
+     "stops": 4,
+     "liquidations": 0,
+     "entries": 87
+    },
+    "ETHUSDT": {
+     "fills": 213,
+     "stops": 11,
+     "liquidations": 0,
+     "entries": 100
+    },
+    "latch_trips": 17
+   }
+  },
+  "2.5x stop0.12@4x pause latch0.03/0.12": {
+   "setting": {
+    "multiple": 2.5,
+    "stop": "0.12",
+    "after_stop": "pause",
+    "latch": [
+     0.03,
+     0.12
+    ],
+    "margin": 4
+   },
+   "whole": {
+    "sharpe": 0.5659075571315445,
+    "max_drawdown": 0.3657209329382939,
+    "total_return": 0.9430459847699264,
+    "loss_stop_share": 0.1189767995240928
+   },
+   "years": {
+    "2021": {
+     "sharpe": 0.23405422031952194,
+     "max_drawdown": 0.2721568891764914,
+     "total_return": 0.012571640159557917,
+     "loss_stop_share": 0.15037593984962405
+    },
+    "2022": {
+     "sharpe": -0.6950586542507976,
+     "max_drawdown": 0.07572271837212485,
+     "total_return": -0.03609596020657735,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.6558310979092864,
+     "max_drawdown": 0.330566247912085,
+     "total_return": 0.21199470696168277,
+     "loss_stop_share": 0.2909090909090909
+    },
+    "2024": {
+     "sharpe": 1.2924178053573416,
+     "max_drawdown": 0.3272252768643036,
+     "total_return": 0.5446935110839877,
+     "loss_stop_share": 0.07971014492753623
+    },
+    "2025": {
+     "sharpe": 0.38356059499618894,
+     "max_drawdown": 0.201898855082858,
+     "total_return": 0.06336037676007344,
+     "loss_stop_share": 0.013100436681222707
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 287,
+     "stops": 1,
+     "liquidations": 0,
+     "entries": 143
+    },
+    "ETHUSDT": {
+     "fills": 543,
+     "stops": 13,
+     "liquidations": 0,
+     "entries": 287
+    },
+    "latch_trips": 115
+   }
+  },
+  "2.5x stop0.12@4x pause latch0.05/0.12": {
+   "setting": {
+    "multiple": 2.5,
+    "stop": "0.12",
+    "after_stop": "pause",
+    "latch": [
+     0.05,
+     0.12
+    ],
+    "margin": 4
+   },
+   "whole": {
+    "sharpe": 0.5445770562488923,
+    "max_drawdown": 0.34883528420037757,
+    "total_return": 0.8898334949677988,
+    "loss_stop_share": 0.10945865556216537
+   },
+   "years": {
+    "2021": {
+     "sharpe": -0.007537649241566365,
+     "max_drawdown": 0.24059455901600224,
+     "total_return": -0.08292154102068872,
+     "loss_stop_share": 0.14661654135338345
+    },
+    "2022": {
+     "sharpe": -0.6735167572022358,
+     "max_drawdown": 0.07093233665253174,
+     "total_return": -0.033075166949033896,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.8059517646856957,
+     "max_drawdown": 0.34013346340751494,
+     "total_return": 0.2904144862770539,
+     "loss_stop_share": 0.2909090909090909
+    },
+    "2024": {
+     "sharpe": 1.1523418649263995,
+     "max_drawdown": 0.34883528420037724,
+     "total_return": 0.5112521617774226,
+     "loss_stop_share": 0.11594202898550725
+    },
+    "2025": {
+     "sharpe": 0.49308770593344553,
+     "max_drawdown": 0.17743175125402044,
+     "total_return": 0.09284399552733746,
+     "loss_stop_share": 0.004366812227074236
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 216,
+     "stops": 2,
+     "liquidations": 0,
+     "entries": 106
+    },
+    "ETHUSDT": {
+     "fills": 398,
+     "stops": 19,
+     "liquidations": 0,
+     "entries": 198
+    },
+    "latch_trips": 38
+   }
+  },
+  "2.5x stop0.12@4x pause_then_reset latch0.03/0.12": {
+   "setting": {
+    "multiple": 2.5,
+    "stop": "0.12",
+    "after_stop": "pause_then_reset",
+    "latch": [
+     0.03,
+     0.12
+    ],
+    "margin": 4
+   },
+   "whole": {
+    "sharpe": 0.4824119107962312,
+    "max_drawdown": 0.30796230834476523,
+    "total_return": 0.6031072526702939,
+    "loss_stop_share": 0.04164187983343248
+   },
+   "years": {
+    "2021": {
+     "sharpe": -0.954710372652144,
+     "max_drawdown": 0.17500564957303832,
+     "total_return": -0.1827285398900268,
+     "loss_stop_share": 0.022556390977443608
+    },
+    "2022": {
+     "sharpe": -0.9823138582688801,
+     "max_drawdown": 0.06498217577235554,
+     "total_return": -0.0401404287577225,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.7780918996160556,
+     "max_drawdown": 0.307962308344766,
+     "total_return": 0.26315194322675106,
+     "loss_stop_share": 0.1709090909090909
+    },
+    "2024": {
+     "sharpe": 1.4734854935834603,
+     "max_drawdown": 0.1973756640293014,
+     "total_return": 0.5711859339328968,
+     "loss_stop_share": 0.010869565217391304
+    },
+    "2025": {
+     "sharpe": 0.25853913226607017,
+     "max_drawdown": 0.1543597548484381,
+     "total_return": 0.029687330077730723,
+     "loss_stop_share": 0.004366812227074236
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 292,
+     "stops": 2,
+     "liquidations": 0,
+     "entries": 146
+    },
+    "ETHUSDT": {
+     "fills": 301,
+     "stops": 6,
+     "liquidations": 0,
+     "entries": 152
+    },
+    "latch_trips": 72
+   }
+  },
+  "2.5x stop0.12@4x pause_then_reset latch0.05/0.12": {
+   "setting": {
+    "multiple": 2.5,
+    "stop": "0.12",
+    "after_stop": "pause_then_reset",
+    "latch": [
+     0.05,
+     0.12
+    ],
+    "margin": 4
+   },
+   "whole": {
+    "sharpe": 0.49372744731447643,
+    "max_drawdown": 0.2884115910383045,
+    "total_return": 0.623286344784937,
+    "loss_stop_share": 0.04878048780487805
+   },
+   "years": {
+    "2021": {
+     "sharpe": -1.0357337846731391,
+     "max_drawdown": 0.16574075971799196,
+     "total_return": -0.17301036345546617,
+     "loss_stop_share": 0.015037593984962405
+    },
+    "2022": {
+     "sharpe": -0.9822520106742069,
+     "max_drawdown": 0.06423808956746702,
+     "total_return": -0.03966872784203024,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.8587177773047807,
+     "max_drawdown": 0.28841159103830427,
+     "total_return": 0.2969553152696811,
+     "loss_stop_share": 0.1781818181818182
+    },
+    "2024": {
+     "sharpe": 1.2855293157271708,
+     "max_drawdown": 0.18138080298037518,
+     "total_return": 0.49367863314429616,
+     "loss_stop_share": 0.0036231884057971015
+    },
+    "2025": {
+     "sharpe": 0.35692237580447395,
+     "max_drawdown": 0.15252271915079307,
+     "total_return": 0.05509560707780925,
+     "loss_stop_share": 0.004366812227074236
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 184,
+     "stops": 2,
+     "liquidations": 0,
+     "entries": 90
+    },
+    "ETHUSDT": {
+     "fills": 243,
+     "stops": 7,
+     "liquidations": 0,
+     "entries": 114
+    },
+    "latch_trips": 18
+   }
+  },
+  "3x stop0.045@10x pause latch0.03/0.12": {
+   "setting": {
+    "multiple": 3.0,
+    "stop": "0.045",
+    "after_stop": "pause",
+    "latch": [
+     0.03,
+     0.12
+    ],
+    "margin": 10
+   },
+   "whole": {
+    "sharpe": 0.40135746113104115,
+    "max_drawdown": 0.47897725375713973,
+    "total_return": 0.49154828846139975,
+    "loss_stop_share": 0.1683521713265913
+   },
+   "years": {
+    "2021": {
+     "sharpe": 0.4876871920048033,
+     "max_drawdown": 0.359351947643749,
+     "total_return": 0.1250250946940017,
+     "loss_stop_share": 0.19172932330827067
+    },
+    "2022": {
+     "sharpe": -0.6878003382663602,
+     "max_drawdown": 0.09394029817201144,
+     "total_return": -0.04652266194071342,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.4531607871442991,
+     "max_drawdown": 0.4197506916261339,
+     "total_return": 0.1105545976115545,
+     "loss_stop_share": 0.4072727272727273
+    },
+    "2024": {
+     "sharpe": 0.7276448160328034,
+     "max_drawdown": 0.4363664679869641,
+     "total_return": 0.26126598722066685,
+     "loss_stop_share": 0.15579710144927536
+    },
+    "2025": {
+     "sharpe": 0.1527893714885007,
+     "max_drawdown": 0.2378832711760125,
+     "total_return": -0.007299743086158217,
+     "loss_stop_share": 0.017467248908296942
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 359,
+     "stops": 26,
+     "liquidations": 0,
+     "entries": 181
+    },
+    "ETHUSDT": {
+     "fills": 779,
+     "stops": 107,
+     "liquidations": 0,
+     "entries": 420
+    },
+    "latch_trips": 163
+   }
+  },
+  "3x stop0.045@10x pause latch0.05/0.12": {
+   "setting": {
+    "multiple": 3.0,
+    "stop": "0.045",
+    "after_stop": "pause",
+    "latch": [
+     0.05,
+     0.12
+    ],
+    "margin": 10
+   },
+   "whole": {
+    "sharpe": 0.2955153063151663,
+    "max_drawdown": 0.46058706214201406,
+    "total_return": 0.1884333913268459,
+    "loss_stop_share": 0.17073170731707318
+   },
+   "years": {
+    "2021": {
+     "sharpe": -0.055671231170784576,
+     "max_drawdown": 0.25268782856783967,
+     "total_return": -0.12705276634837182,
+     "loss_stop_share": 0.13157894736842105
+    },
+    "2022": {
+     "sharpe": -0.49506700773984763,
+     "max_drawdown": 0.07624738251290586,
+     "total_return": -0.030289769639646136,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.5151606399868609,
+     "max_drawdown": 0.42878892798981416,
+     "total_return": 0.1457982852167694,
+     "loss_stop_share": 0.4690909090909091
+    },
+    "2024": {
+     "sharpe": 0.6412465159386312,
+     "max_drawdown": 0.46058706214201384,
+     "total_return": 0.2198880741025797,
+     "loss_stop_share": 0.14855072463768115
+    },
+    "2025": {
+     "sharpe": 0.19187048074915078,
+     "max_drawdown": 0.19879663989380147,
+     "total_return": 0.004423168202475347,
+     "loss_stop_share": 0.039301310043668124
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 256,
+     "stops": 26,
+     "liquidations": 0,
+     "entries": 127
+    },
+    "ETHUSDT": {
+     "fills": 553,
+     "stops": 89,
+     "liquidations": 0,
+     "entries": 282
+    },
+    "latch_trips": 66
+   }
+  },
+  "3x stop0.045@10x pause_then_reset latch0.03/0.12": {
+   "setting": {
+    "multiple": 3.0,
+    "stop": "0.045",
+    "after_stop": "pause_then_reset",
+    "latch": [
+     0.03,
+     0.12
+    ],
+    "margin": 10
+   },
+   "whole": {
+    "sharpe": 0.22850544860831146,
+    "max_drawdown": 0.3256526455088,
+    "total_return": 0.13885237286820606,
+    "loss_stop_share": 0.04818560380725759
+   },
+   "years": {
+    "2021": {
+     "sharpe": -0.6894233421024305,
+     "max_drawdown": 0.0992822117660328,
+     "total_return": -0.07467524352350308,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": -0.4990697764510206,
+     "max_drawdown": 0.07080637726132588,
+     "total_return": -0.030788124180387677,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.985363941858321,
+     "max_drawdown": 0.32565264550879947,
+     "total_return": 0.4094205773621573,
+     "loss_stop_share": 0.29454545454545455
+    },
+    "2024": {
+     "sharpe": 0.21102961699672637,
+     "max_drawdown": 0.14235113851330183,
+     "total_return": 0.023214573015956308,
+     "loss_stop_share": 0.0
+    },
+    "2025": {
+     "sharpe": -0.7922407367573783,
+     "max_drawdown": 0.15409301973658307,
+     "total_return": -0.11946383520912396,
+     "loss_stop_share": 0.0
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 141,
+     "stops": 10,
+     "liquidations": 0,
+     "entries": 71
+    },
+    "ETHUSDT": {
+     "fills": 233,
+     "stops": 20,
+     "liquidations": 0,
+     "entries": 123
+    },
+    "latch_trips": 46
+   }
+  },
+  "3x stop0.045@10x pause_then_reset latch0.05/0.12": {
+   "setting": {
+    "multiple": 3.0,
+    "stop": "0.045",
+    "after_stop": "pause_then_reset",
+    "latch": [
+     0.05,
+     0.12
+    ],
+    "margin": 10
+   },
+   "whole": {
+    "sharpe": 0.589898979200339,
+    "max_drawdown": 0.3512489929212107,
+    "total_return": 0.9185548937121026,
+    "loss_stop_share": 0.04937537180249851
+   },
+   "years": {
+    "2021": {
+     "sharpe": 0.21284878201297056,
+     "max_drawdown": 0.11328174710692451,
+     "total_return": 0.021797555561770432,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": -0.5176598184431025,
+     "max_drawdown": 0.0713610377747338,
+     "total_return": -0.032203074731571246,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 1.0715833424193815,
+     "max_drawdown": 0.3512489929212105,
+     "total_return": 0.5038395426598588,
+     "loss_stop_share": 0.26545454545454544
+    },
+    "2024": {
+     "sharpe": 1.094387935637439,
+     "max_drawdown": 0.12547822443714762,
+     "total_return": 0.36218363153662425,
+     "loss_stop_share": 0.0
+    },
+    "2025": {
+     "sharpe": -0.09048602842664805,
+     "max_drawdown": 0.18481573350642622,
+     "total_return": -0.052917144648546355,
+     "loss_stop_share": 0.021834061135371178
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 199,
+     "stops": 11,
+     "liquidations": 0,
+     "entries": 103
+    },
+    "ETHUSDT": {
+     "fills": 218,
+     "stops": 25,
+     "liquidations": 0,
+     "entries": 113
+    },
+    "latch_trips": 24
+   }
+  },
+  "3x stop0.08@6x pause latch0.03/0.12": {
+   "setting": {
+    "multiple": 3.0,
+    "stop": "0.08",
+    "after_stop": "pause",
+    "latch": [
+     0.03,
+     0.12
+    ],
+    "margin": 6
+   },
+   "whole": {
+    "sharpe": 0.4003587275838957,
+    "max_drawdown": 0.4461243097940314,
+    "total_return": 0.488009165313797,
+    "loss_stop_share": 0.15942891136228435
+   },
+   "years": {
+    "2021": {
+     "sharpe": 0.4685186122564212,
+     "max_drawdown": 0.3089303001202802,
+     "total_return": 0.11371747515382902,
+     "loss_stop_share": 0.18796992481203006
+    },
+    "2022": {
+     "sharpe": -0.8181155248164769,
+     "max_drawdown": 0.09919815266092402,
+     "total_return": -0.05559165153472878,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.3433024754169716,
+     "max_drawdown": 0.4228371207608911,
+     "total_return": 0.047947128237505465,
+     "loss_stop_share": 0.3927272727272727
+    },
+    "2024": {
+     "sharpe": 0.879793156935669,
+     "max_drawdown": 0.39973114480294847,
+     "total_return": 0.3518291269954419,
+     "loss_stop_share": 0.10869565217391304
+    },
+    "2025": {
+     "sharpe": 0.17461812022847448,
+     "max_drawdown": 0.2344673994400629,
+     "total_return": -0.0013585617172165998,
+     "loss_stop_share": 0.026200873362445413
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 346,
+     "stops": 6,
+     "liquidations": 0,
+     "entries": 171
+    },
+    "ETHUSDT": {
+     "fills": 684,
+     "stops": 34,
+     "liquidations": 0,
+     "entries": 370
+    },
+    "latch_trips": 162
+   }
+  },
+  "3x stop0.08@6x pause latch0.05/0.12": {
+   "setting": {
+    "multiple": 3.0,
+    "stop": "0.08",
+    "after_stop": "pause",
+    "latch": [
+     0.05,
+     0.12
+    ],
+    "margin": 6
+   },
+   "whole": {
+    "sharpe": 0.29678613121959424,
+    "max_drawdown": 0.42173282595170314,
+    "total_return": 0.196156535852553,
+    "loss_stop_share": 0.15823914336704342
+   },
+   "years": {
+    "2021": {
+     "sharpe": 0.02092365696067896,
+     "max_drawdown": 0.2773957097749493,
+     "total_return": -0.108542643910298,
+     "loss_stop_share": 0.18045112781954886
+    },
+    "2022": {
+     "sharpe": -0.7334294661139781,
+     "max_drawdown": 0.09996592055406317,
+     "total_return": -0.04939830434595793,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.41431409984420603,
+     "max_drawdown": 0.421732825951703,
+     "total_return": 0.08969025023643651,
+     "loss_stop_share": 0.41454545454545455
+    },
+    "2024": {
+     "sharpe": 0.6203524504463773,
+     "max_drawdown": 0.3561869745335191,
+     "total_return": 0.2062955161255866,
+     "loss_stop_share": 0.08333333333333333
+    },
+    "2025": {
+     "sharpe": 0.40731244235645697,
+     "max_drawdown": 0.24789965575666006,
+     "total_return": 0.07382146571635961,
+     "loss_stop_share": 0.026200873362445413
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 184,
+     "stops": 5,
+     "liquidations": 0,
+     "entries": 87
+    },
+    "ETHUSDT": {
+     "fills": 488,
+     "stops": 35,
+     "liquidations": 0,
+     "entries": 254
+    },
+    "latch_trips": 67
+   }
+  },
+  "3x stop0.08@6x pause_then_reset latch0.03/0.12": {
+   "setting": {
+    "multiple": 3.0,
+    "stop": "0.08",
+    "after_stop": "pause_then_reset",
+    "latch": [
+     0.03,
+     0.12
+    ],
+    "margin": 6
+   },
+   "whole": {
+    "sharpe": 0.3190689867970228,
+    "max_drawdown": 0.37816532952897375,
+    "total_return": 0.2849544234401571,
+    "loss_stop_share": 0.0761451516954194
+   },
+   "years": {
+    "2021": {
+     "sharpe": -0.46356873452065217,
+     "max_drawdown": 0.14803014694000205,
+     "total_return": -0.09696850996998374,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": -0.688638149837846,
+     "max_drawdown": 0.09005280181875053,
+     "total_return": -0.045982054714375775,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.6518499256025447,
+     "max_drawdown": 0.3781653295289743,
+     "total_return": 0.22264701053348945,
+     "loss_stop_share": 0.33454545454545453
+    },
+    "2024": {
+     "sharpe": 0.8870710730701978,
+     "max_drawdown": 0.13260933584756496,
+     "total_return": 0.24005545502318149,
+     "loss_stop_share": 0.0
+    },
+    "2025": {
+     "sharpe": 0.10181496471713772,
+     "max_drawdown": 0.23352211499488162,
+     "total_return": -0.01624696030729078,
+     "loss_stop_share": 0.017467248908296942
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 213,
+     "stops": 3,
+     "liquidations": 0,
+     "entries": 106
+    },
+    "ETHUSDT": {
+     "fills": 316,
+     "stops": 9,
+     "liquidations": 0,
+     "entries": 168
+    },
+    "latch_trips": 73
+   }
+  },
+  "3x stop0.08@6x pause_then_reset latch0.05/0.12": {
+   "setting": {
+    "multiple": 3.0,
+    "stop": "0.08",
+    "after_stop": "pause_then_reset",
+    "latch": [
+     0.05,
+     0.12
+    ],
+    "margin": 6
+   },
+   "whole": {
+    "sharpe": 0.40986469032656164,
+    "max_drawdown": 0.38598817485517556,
+    "total_return": 0.4914686942686557,
+    "loss_stop_share": 0.11005353955978585
+   },
+   "years": {
+    "2021": {
+     "sharpe": -0.6200826252585464,
+     "max_drawdown": 0.16527972002746616,
+     "total_return": -0.13594201569235542,
+     "loss_stop_share": 0.007518796992481203
+    },
+    "2022": {
+     "sharpe": -0.63354515610358,
+     "max_drawdown": 0.0803164788120676,
+     "total_return": -0.04012540562248845,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.6053365894347728,
+     "max_drawdown": 0.38598817485517534,
+     "total_return": 0.19420217223993919,
+     "loss_stop_share": 0.4
+    },
+    "2024": {
+     "sharpe": 1.466994874816517,
+     "max_drawdown": 0.18253918323673424,
+     "total_return": 0.7430948121224892,
+     "loss_stop_share": 0.007246376811594203
+    },
+    "2025": {
+     "sharpe": -0.3484838029781237,
+     "max_drawdown": 0.23310018530131338,
+     "total_return": -0.13611110735353515,
+     "loss_stop_share": 0.07860262008733625
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 231,
+     "stops": 3,
+     "liquidations": 0,
+     "entries": 115
+    },
+    "ETHUSDT": {
+     "fills": 240,
+     "stops": 10,
+     "liquidations": 0,
+     "entries": 118
+    },
+    "latch_trips": 35
+   }
+  },
+  "3x stop0.12@4x pause latch0.03/0.12": {
+   "setting": {
+    "multiple": 3.0,
+    "stop": "0.12",
+    "after_stop": "pause",
+    "latch": [
+     0.03,
+     0.12
+    ],
+    "margin": 4
+   },
+   "whole": {
+    "sharpe": 0.40676581508706217,
+    "max_drawdown": 0.4165626101270201,
+    "total_return": 0.5053036516855733,
+    "loss_stop_share": 0.16775728732897086
+   },
+   "years": {
+    "2021": {
+     "sharpe": 0.18562798913665626,
+     "max_drawdown": 0.32625336526740634,
+     "total_return": -0.03541503138370172,
+     "loss_stop_share": 0.23308270676691728
+    },
+    "2022": {
+     "sharpe": -0.6934621842674057,
+     "max_drawdown": 0.09337137274031926,
+     "total_return": -0.04580596288176264,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.6515792036761657,
+     "max_drawdown": 0.38084347944485697,
+     "total_return": 0.23232908426313226,
+     "loss_stop_share": 0.3781818181818182
+    },
+    "2024": {
+     "sharpe": 0.9189052998776643,
+     "max_drawdown": 0.36274852386243195,
+     "total_return": 0.3681985430275869,
+     "loss_stop_share": 0.11594202898550725
+    },
+    "2025": {
+     "sharpe": 0.07953175496839729,
+     "max_drawdown": 0.21400278189742317,
+     "total_return": -0.030001405530410752,
+     "loss_stop_share": 0.03056768558951965
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 350,
+     "stops": 1,
+     "liquidations": 0,
+     "entries": 174
+    },
+    "ETHUSDT": {
+     "fills": 644,
+     "stops": 15,
+     "liquidations": 0,
+     "entries": 347
+    },
+    "latch_trips": 159
+   }
+  },
+  "3x stop0.12@4x pause latch0.05/0.12": {
+   "setting": {
+    "multiple": 3.0,
+    "stop": "0.12",
+    "after_stop": "pause",
+    "latch": [
+     0.05,
+     0.12
+    ],
+    "margin": 4
+   },
+   "whole": {
+    "sharpe": 0.4384193169072429,
+    "max_drawdown": 0.3846654615305757,
+    "total_return": 0.5991737609819143,
+    "loss_stop_share": 0.1457465794170137
+   },
+   "years": {
+    "2021": {
+     "sharpe": -0.013159051123728286,
+     "max_drawdown": 0.27265039327090657,
+     "total_return": -0.12501656937723116,
+     "loss_stop_share": 0.19548872180451127
+    },
+    "2022": {
+     "sharpe": -0.7230850222104539,
+     "max_drawdown": 0.08990601935350029,
+     "total_return": -0.04463099986904917,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.6688530132421411,
+     "max_drawdown": 0.383812485731562,
+     "total_return": 0.23889221252370563,
+     "loss_stop_share": 0.3709090909090909
+    },
+    "2024": {
+     "sharpe": 1.0800787506315246,
+     "max_drawdown": 0.38404888816412,
+     "total_return": 0.540565412751228,
+     "loss_stop_share": 0.12681159420289856
+    },
+    "2025": {
+     "sharpe": 0.1867235578813718,
+     "max_drawdown": 0.23496575562292432,
+     "total_return": 0.002330659546686542,
+     "loss_stop_share": 0.026200873362445413
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 254,
+     "stops": 2,
+     "liquidations": 0,
+     "entries": 125
+    },
+    "ETHUSDT": {
+     "fills": 463,
+     "stops": 14,
+     "liquidations": 0,
+     "entries": 241
+    },
+    "latch_trips": 64
+   }
+  },
+  "3x stop0.12@4x pause_then_reset latch0.03/0.12": {
+   "setting": {
+    "multiple": 3.0,
+    "stop": "0.12",
+    "after_stop": "pause_then_reset",
+    "latch": [
+     0.03,
+     0.12
+    ],
+    "margin": 4
+   },
+   "whole": {
+    "sharpe": 0.4731402578751551,
+    "max_drawdown": 0.39646237189342104,
+    "total_return": 0.6712700821873661,
+    "loss_stop_share": 0.10053539559785842
+   },
+   "years": {
+    "2021": {
+     "sharpe": -0.7235041140066556,
+     "max_drawdown": 0.1606736307044936,
+     "total_return": -0.15427017368474372,
+     "loss_stop_share": 0.0
+    },
+    "2022": {
+     "sharpe": -0.9731772883649619,
+     "max_drawdown": 0.10089458547823016,
+     "total_return": -0.0617065740814261,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.5289208992569945,
+     "max_drawdown": 0.3964623718934216,
+     "total_return": 0.15170337739219653,
+     "loss_stop_share": 0.3890909090909091
+    },
+    "2024": {
+     "sharpe": 1.4137791475879633,
+     "max_drawdown": 0.3609844894799136,
+     "total_return": 0.7546092338949413,
+     "loss_stop_share": 0.09782608695652174
+    },
+    "2025": {
+     "sharpe": 0.30689681819682885,
+     "max_drawdown": 0.2092526872844439,
+     "total_return": 0.04221007525356879,
+     "loss_stop_share": 0.021834061135371178
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 335,
+     "stops": 1,
+     "liquidations": 0,
+     "entries": 169
+    },
+    "ETHUSDT": {
+     "fills": 429,
+     "stops": 6,
+     "liquidations": 0,
+     "entries": 230
+    },
+    "latch_trips": 105
+   }
+  },
+  "3x stop0.12@4x pause_then_reset latch0.05/0.12": {
+   "setting": {
+    "multiple": 3.0,
+    "stop": "0.12",
+    "after_stop": "pause_then_reset",
+    "latch": [
+     0.05,
+     0.12
+    ],
+    "margin": 4
+   },
+   "whole": {
+    "sharpe": 0.4424702523857493,
+    "max_drawdown": 0.36158213455945354,
+    "total_return": 0.5827628477877702,
+    "loss_stop_share": 0.10291493158834028
+   },
+   "years": {
+    "2021": {
+     "sharpe": -1.0317435859283424,
+     "max_drawdown": 0.2504448933653507,
+     "total_return": -0.26149708244948755,
+     "loss_stop_share": 0.08646616541353383
+    },
+    "2022": {
+     "sharpe": -0.8508687669820135,
+     "max_drawdown": 0.07829177863239467,
+     "total_return": -0.04414251369941957,
+     "loss_stop_share": 0.0
+    },
+    "2023": {
+     "sharpe": 0.733112576160934,
+     "max_drawdown": 0.3601594958913855,
+     "total_return": 0.2690523737533135,
+     "loss_stop_share": 0.34545454545454546
+    },
+    "2024": {
+     "sharpe": 1.2359195443999047,
+     "max_drawdown": 0.2560645536051984,
+     "total_return": 0.565983608278632,
+     "loss_stop_share": 0.036231884057971016
+    },
+    "2025": {
+     "sharpe": 0.5705540493800794,
+     "max_drawdown": 0.19859828782739464,
+     "total_return": 0.1282458080847353,
+     "loss_stop_share": 0.013100436681222707
+    }
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 234,
+     "stops": 1,
+     "liquidations": 0,
+     "entries": 116
+    },
+    "ETHUSDT": {
+     "fills": 263,
+     "stops": 6,
+     "liquidations": 0,
+     "entries": 129
+    },
+    "latch_trips": 34
+   }
+  }
+ },
+ "consistency": {
+  "reference_total_return": 0.8781,
+  "reference_sharpe": 0.626,
+  "total_return": 0.8781,
+  "sharpe": 0.626,
+  "same": true
+ },
+ "walk_forward": {
+  "choices": {
+   "2022": "1x stop0.12@4x pause_then_reset latch0.03/0.12",
+   "2023": "1x stop0.12@4x pause_then_reset latch0.03/0.12",
+   "2024": "2x stop0.045@10x pause_then_reset latch0.03/0.12",
+   "2025": "2x stop0.045@10x pause_then_reset latch0.03/0.12"
+  },
+  "stats": {
+   "sharpe": 0.2857889227463677,
+   "max_drawdown": 0.12623061866769925,
+   "total_return": 0.11044707087356187,
+   "loss_stop_share": 0.0
+  },
+  "double_costs": {
+   "sharpe": 0.7382116239260369,
+   "max_drawdown": 0.12057751099559333,
+   "total_return": 0.5199438549649733,
+   "loss_stop_share": 0.0
+  },
+  "baseline_same_years": {
+   "sharpe": 0.7844914813385702,
+   "max_drawdown": 0.2549917316659085,
+   "total_return": 0.9346838562461413,
+   "loss_stop_share": 0.030943396226415093
+  },
+  "deflated_probability": 0.5165203375453289
+ },
+ "final": {
+  "choice": "1x stop0.045@10x pause_then_reset latch0.03/0.12",
+  "whole": {
+   "sharpe": 0.7075958812030981,
+   "max_drawdown": 0.10402007442934502,
+   "total_return": 0.28209370446939275,
+   "loss_stop_share": 0.0
+  },
+  "double_costs": {
+   "sharpe": 0.7120271929521022,
+   "max_drawdown": 0.10786126691962716,
+   "total_return": 0.28966629066842264,
+   "loss_stop_share": 0.0
+  },
+  "neighbours": {
+   "1.5x stop0.045@10x pause_then_reset latch0.03/0.12": {
+    "sharpe": 0.6342407735226825,
+    "max_drawdown": 0.1424659061607466,
+    "total_return": 0.4191490471032082,
+    "loss_stop_share": 0.0
+   },
+   "1x stop0.08@6x pause_then_reset latch0.03/0.12": {
+    "sharpe": 0.3843201652300934,
+    "max_drawdown": 0.10916489737822399,
+    "total_return": 0.12309421301981738,
+    "loss_stop_share": 0.0
+   },
+   "1x stop0.045@10x pause latch0.03/0.12": {
+    "sharpe": 0.5517784596445092,
+    "max_drawdown": 0.1112382701689254,
+    "total_return": 0.22984428832853543,
+    "loss_stop_share": 0.0
+   },
+   "1x stop0.045@10x pause_then_reset latch0.05/0.12": {
+    "sharpe": 0.7075958812030981,
+    "max_drawdown": 0.10402007442934502,
+    "total_return": 0.28209370446939275,
+    "loss_stop_share": 0.0
+   }
+  }
+ },
+ "adoption": {
+  "checks": {
+   "walk_forward_sharpe_at_least_baseline": false,
+   "walk_forward_double_costs_return_above_0": true,
+   "final_double_costs_return_above_0": true
+  },
+  "adopt": false,
+  "settings_to_track": "2x stop0.045@10x pause latch0.03/0.12"
+ }
+}
