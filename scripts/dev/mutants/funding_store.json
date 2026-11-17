@@ -1,0 +1,121 @@
+[
+ [
+  "migrate a higher version",
+  "trading/adapters/sqlite/schema.py",
+  "        if not steps or not all(step in MIGRATIONS for step in steps):",
+  "        if not all(step in MIGRATIONS for step in steps):",
+  "tests/unit/trading/test_funding_store.py"
+ ],
+ [
+  "migrate adds nothing",
+  "trading/adapters/sqlite/schema.py",
+  "                    db.execute(TABLES[table])\n",
+  "                    pass\n",
+  "tests/unit/trading/test_funding_store.py"
+ ],
+ [
+  "older version lost tables",
+  "trading/adapters/sqlite/schema.py",
+  "    if missing := [t for t in TABLES if t not in tables and t not in later]:",
+  "    if missing := [t for t in TABLES if t not in tables]:",
+  "tests/unit/trading/test_funding_store.py"
+ ],
+ [
+  "gap allowed",
+  "trading/adapters/sqlite/funding_store.py",
+  "            elif from_ms <= int(old[\"through_ms\"]):",
+  "            elif True:",
+  "tests/unit/trading/test_funding_store.py"
+ ],
+ [
+  "reread does not widen",
+  "trading/adapters/sqlite/funding_store.py",
+  "            if old is None or from_ms <= int(old[\"from_ms\"]):",
+  "            if old is None:",
+  "tests/unit/trading/test_funding_store.py"
+ ],
+ [
+  "total excludes the start",
+  "trading/adapters/sqlite/funding_store.py",
+  "\"SELECT amount FROM funding_rows WHERE scope=? AND symbol=? AND time_ms>=?\"",
+  "\"SELECT amount FROM funding_rows WHERE scope=? AND symbol=? AND time_ms>?\"",
+  "tests/unit/trading/test_funding_store.py"
+ ],
+ [
+  "total of every scope",
+  "trading/adapters/sqlite/funding_store.py",
+  "\"SELECT amount FROM funding_rows WHERE scope=? AND symbol=? AND time_ms>=?\",\n                (self.scope, symbol, int(since_ms)))",
+  "\"SELECT amount FROM funding_rows WHERE ?!='' AND symbol=? AND time_ms>=?\",\n                (self.scope, symbol, int(since_ms)))",
+  "tests/unit/trading/test_funding_store.py"
+ ],
+ [
+  "no overlap",
+  "trading/application/equity.py",
+  "max(since_ms, covered[1] - FUNDING_OVERLAP_MS)",
+  "max(since_ms, covered[1])",
+  "tests/unit/trading/test_funding_store.py"
+ ],
+ [
+  "no reread from the first fill",
+  "trading/application/equity.py",
+  "        if covered is None or covered[0] > since_ms:\n",
+  "        if covered is None:\n",
+  "tests/unit/trading/test_funding_store.py"
+ ],
+ [
+  "rows need not reach the first fill",
+  "trading/application/equity.py",
+  "            if covered is None or covered[0] > int(since * 1000):",
+  "            if covered is None:",
+  "tests/unit/trading/test_funding_store.py"
+ ],
+ [
+  "restart knows nothing",
+  "trading/application/equity.py",
+  "        if self.refreshed_at is None and self.store is not None:\n            return self._stored()",
+  "        if False:\n            return self._stored()",
+  "tests/unit/trading/test_funding_store.py"
+ ],
+ [
+  "store not wired",
+  "trading/infrastructure/target.py",
+  "                                  store=SqliteFundingStore(orders_path, scope))",
+  "                                  store=None)",
+  "tests/characterization/test_strategy_capital_sizing.py::test_the_runtime_keeps_the_funding_rows_in_the_state_database"
+ ],
+ [
+  "no copy kept",
+  "trading/infrastructure/state_dir.py",
+  "        copy_database(database, kept)\n        schema.migrate(database)",
+  "        schema.migrate(database)",
+  "tests/characterization/test_state_migrate.py"
+ ],
+ [
+  "older backup refused",
+  "trading/infrastructure/state_dir.py",
+  "        older = len(bad) == 1 and schema.version(snapshot) in schema.MIGRATIONS",
+  "        older = False",
+  "tests/characterization/test_state_migrate.py"
+ ],
+ [
+  "manifest not updated",
+  "trading/infrastructure/state_dir.py",
+  "kept=kept.name)\n        manifest[\"state_db_version\"] = schema.VERSION\n",
+  "kept=kept.name)\n",
+  "tests/characterization/test_state_migrate.py"
+ ],
+ [
+  "migration not recorded",
+  "trading/infrastructure/state_dir.py",
+  "        record_migration(database, scope=scope, at=now, had=had, version=schema.VERSION, kept=kept.name)\n",
+  "",
+  "tests/characterization/test_state_migrate.py"
+ ],
+ [
+  "row time lost",
+  "trading/adapters/binance/adapter.py",
+  "                        income[str(row[\"tranId\"])] = (int(row[\"time\"]), amount)",
+  "                        income[str(row[\"tranId\"])] = (0, amount)",
+  "tests/unit/binance/test_funding_income.py"
+ ]
+]

@@ -1,0 +1,44 @@
+[
+ [
+  "the gap is checked at the kept rows' end again",
+  "trading/application/equity.py",
+  "            if self._start(self.store.coverage(symbol), int(since * 1000)) < oldest:",
+  "            if (c := self.store.coverage(symbol)) is not None and c[1] < oldest:",
+  "tests/unit/trading/test_funding_store.py"
+ ],
+ [
+  "the read starts before the kept rows start",
+  "trading/application/equity.py",
+  "return max(since_ms, covered[1] - FUNDING_OVERLAP_MS)",
+  "return max(since_ms, covered[0] - FUNDING_OVERLAP_MS)",
+  "tests/unit/trading/test_funding_store.py"
+ ],
+ [
+  "the overlap may reach before the first fill",
+  "trading/application/equity.py",
+  "return max(since_ms, covered[1] - FUNDING_OVERLAP_MS)",
+  "return covered[1] - FUNDING_OVERLAP_MS",
+  "tests/unit/trading/test_funding_store.py"
+ ],
+ [
+  "Binance's history taken as 89 days",
+  "trading/application/equity.py",
+  "FUNDING_HISTORY_MS = 88 * 86_400_000",
+  "FUNDING_HISTORY_MS = 89 * 86_400_000",
+  "tests/unit/trading/test_funding_store.py"
+ ],
+ [
+  "a broken version-1 snapshot counts as older",
+  "trading/infrastructure/state_dir.py",
+  "older = len(bad) == 1 and schema.version(snapshot)",
+  "older = schema.version(snapshot)",
+  "tests/characterization/test_state_migrate.py"
+ ],
+ [
+  "a broken version-1 database is sent to migrate",
+  "trading/infrastructure/state_dir.py",
+  "intact_older = len(problems) == 1 and schema.version(database)",
+  "intact_older = schema.version(database)",
+  "tests/characterization/test_state_migrate.py"
+ ]
+]

@@ -19,6 +19,7 @@ from typing import Any, Protocol
 from trading.adapters.binance.adapter import MARGIN_TYPES
 from trading.adapters.sqlite.drawdown_store import SqliteDrawdownGuard
 from trading.adapters.sqlite.entry_pause import SqliteEntryPauses
+from trading.adapters.sqlite.funding_store import SqliteFundingStore
 from trading.adapters.sqlite.limit_store import SqliteLimitStore
 from trading.adapters.sqlite.order_journal import SqliteOrderJournal
 from trading.adapters.sqlite.paper_state import PaperOrderJournal, SqlitePaperState
@@ -247,8 +248,10 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
 
         def owners() -> list[str]:
             return strategy_owners(ledger, symbols)
+        # The funding rows are kept in the state database (version 2, tech lead 2026-11-17): no 88-day limit.
         funding = StrategyFunding(inputs.funding, lambda: [o[len(OWNER_PREFIX):] for o in owners()],
-                                  lambda s: ledger.first_fill_at(OWNER_PREFIX + s), clock)
+                                  lambda s: ledger.first_fill_at(OWNER_PREFIX + s), clock,
+                                  store=SqliteFundingStore(orders_path, scope))
         capped = CappedEquity(equity, inputs.strategy_capital,
                               lambda: strategy_realized_pnl(ledger, owners()) + funding.current())
         if inputs.strategy_loss_stop is not None:

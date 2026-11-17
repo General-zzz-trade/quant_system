@@ -396,11 +396,17 @@ class BinanceAdapter:
         ) for f in data)
 
     def get_funding_income(self, symbol: str, *, since_ms: int, now_ms: int) -> Decimal:
-        """The account's USDT funding income on ``symbol`` from ``since_ms`` to ``now_ms`` (both inclusive): the
-        strategy capital base (tech lead 2026-11-16). Read-only GET of the income history, paged by time: the next
-        page starts at the last row's time, and a row returned twice counts once (by its transaction id). Errors and
-        answers that cannot be read raise: an unknown total is never 0. So does a start beyond the history Binance
-        keeps."""
+        """The account's USDT funding income on ``symbol`` from ``since_ms`` to ``now_ms`` (both inclusive): the sum
+        of ``get_funding_rows``."""
+        return sum((amount for _, _, amount in self.get_funding_rows(symbol, since_ms=since_ms, now_ms=now_ms)),
+                   Decimal(0))
+
+    def get_funding_rows(self, symbol: str, *, since_ms: int, now_ms: int) -> list[tuple[str, int, Decimal]]:
+        """The account's USDT funding rows on ``symbol`` from ``since_ms`` to ``now_ms`` (both inclusive), as
+        (transaction id, time ms, amount): the strategy capital base (tech lead 2026-11-16; kept in the state database
+        since 2026-11-17). Read-only GET of the income history, paged by time: the next page starts at the last row's
+        time, and a row returned twice counts once (by its transaction id). Errors and answers that cannot be read
+        raise: an unknown total is never 0. So does a start beyond the history Binance keeps."""
         if since_ms < now_ms - INCOME_HISTORY_MS:
             raise RuntimeError(f"funding income of {symbol} since {since_ms} cannot be read whole: Binance keeps "
                                "income history for three months only")
@@ -408,7 +414,7 @@ class BinanceAdapter:
         # only one end of the window returns less clearly than one with both.
         params: dict[str, Any] = {"symbol": symbol, "incomeType": "FUNDING_FEE", "startTime": int(since_ms),
                                   "endTime": int(now_ms), "limit": INCOME_PAGE}
-        income: dict[str, Decimal] = {}
+        income: dict[str, tuple[int, Decimal]] = {}
         for _ in range(MAX_INCOME_PAGES):
             page = self._client.request_signed(method="GET", path="/fapi/v1/income", params=dict(params))
             if not isinstance(page, list):
@@ -419,12 +425,12 @@ class BinanceAdapter:
                         amount = Decimal(str(row["income"]))
                         if not amount.is_finite():
                             raise ValueError(f"income {row['income']!r}")
-                        income[str(row["tranId"])] = amount
+                        income[str(row["tranId"])] = (int(row["time"]), amount)
                 last = max((int(row["time"]) for row in page), default=params["startTime"])
             except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
                 raise RuntimeError(f"Invalid Binance income history row ({type(exc).__name__}: {exc})") from None
             if len(page) < INCOME_PAGE:
-                return sum(income.values(), Decimal(0))
+                return sorted(((tran, at, amount) for tran, (at, amount) in income.items()), key=lambda r: (r[1], r[0]))
             if last <= params["startTime"]:
                 raise RuntimeError(f"Binance income history of {symbol} does not advance past {last}")
             params["startTime"] = last

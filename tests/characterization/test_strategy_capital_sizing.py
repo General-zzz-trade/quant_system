@@ -131,3 +131,27 @@ def test_without_a_cap_no_funding_is_asked(tmp_path, monkeypatch):
     _until(world, runtime, lambda: btc.positions.get("BTCUSDT", D(0)) != 0)
     _tick(world, runtime, 601)
     assert all(fake.income_requests == [] for fake in world["fakes"].values())
+
+
+def test_the_runtime_keeps_the_funding_rows_in_the_state_database(tmp_path, monkeypatch):
+    """Tech lead 2026-11-17: the rows read are kept (version 2), so a later refresh reads only a short window and a
+    restart's loss stop knows the total before any read."""
+    import sqlite3
+    from trading.adapters.sqlite import schema
+    monkeypatch.setenv("STRATEGY_CAPITAL_USDT", "300")
+    world, runtime = _execution(tmp_path)
+    btc = world["fakes"]["BTCUSDT"]
+    _until(world, runtime, lambda: btc.positions.get("BTCUSDT", D(0)) != 0)
+    now = btc.now_ms()
+    btc.add_income("BTCUSDT", "-40", now + 1_000)
+    for _ in range(27):                                            # 27 hours on: past the 24-hour overlap
+        _tick(world, runtime, 3600)
+    with sqlite3.connect(tmp_path / "exec" / schema.STATE_DB) as db:
+        kept = db.execute("SELECT symbol, amount FROM funding_rows").fetchall()
+        scopes = {r[0] for r in db.execute("SELECT scope FROM funding_rows")}
+        span = db.execute("SELECT from_ms, through_ms FROM funding_coverage WHERE symbol='BTCUSDT'").fetchone()
+    assert ("BTCUSDT", "-40") in kept and span is not None
+    assert scopes == {runtime.config.scope}                        # audit of #147 (mutant A12): the runtime's scope
+    first, last = btc.income_requests[0], btc.income_requests[-1]
+    assert last["startTime"] > first["startTime"]                  # later reads start near the kept span's end
+    assert last["endTime"] - last["startTime"] <= 25 * 3_600_000   # 24 hours of overlap and one hour since the last

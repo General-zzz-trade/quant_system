@@ -4747,6 +4747,168 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   `tests/architecture` 通过；ruff、`lint-imports` 通过。
 - **第一次用**：2026-11-26 起，先 `download` 再 `look`（命令在模块说明里），结果放 `research/lab/forward/e3/2026-11-25/`。
 
+## 累计资金费存进状态库（状态库第 2 版，2026-11-17，资金路径，完整流程）
+
+- **决定**：技术负责人 2026-11-17 选了"累计资金费存进状态库"（2026-11-16 时说过：88 天的保护保留到这一项做完）。
+- **原来的问题**：仓位基数和 15% 亏损停止线都要算策略自首笔成交以来的资金费，币安的收入历史只保留三个月。所以首笔成交超过 88 天后
+  仓位基数就是 0；重启后亏损停止线也不知道资金费，直到本进程读到一次。
+- **改了什么**：
+  - 状态库第 2 版（`schema.VERSION = 2`）加两张表：
+    - `funding_rows`：每一行资金费，按币安的交易号去重；
+    - `funding_coverage`：每个品种的资金费已完整读到的区间。
+  - 存储 `SqliteFundingStore`：同一行只存一次；会留下断档的写入一律拒绝；可以按"从某个时间起"求和。
+  - `StrategyFunding(store=...)`：
+    - 第一次从首笔成交读起；
+    - 以后从已存区间结束前 8 小时读起，重叠部分照顾晚到的行；
+    - 总数取库里存的。
+    - 程序停了超过三个月、中间断档时，读取失败，仓位基数 2 小时后归零（和原来一样）；亏损停止线用库里存着的总数。
+    - 重启后，在本进程还没读到之前，亏损停止线也用库里存着的总数。
+    - 不给存储时，行为和原来完全一样（已有测试都没改）。
+  - 币安适配层新增 `get_funding_rows`，返回交易号、时间、金额；`get_funding_income` 改为它的和，行为不变。端口 `FundingIncome` 加这个方法，
+    另有新端口 `FundingStore`。执行模式接入这个存储；模拟盘不用资金费，不受影响。
+  - 迁移（ADR-0009 第 5 条）：
+    - `schema.migrate` 只加表；`state_dir migrate` 由人在运行时停着的时候运行，要拿到主机锁和目录租约；
+    - 旧文件留一份（`state.sqlite.v1-<时间>`），迁移记进 `manual_actions` 和清单；
+    - 有别的问题的库拒绝迁移；
+    - 版本不对时启动会拒绝，并提示这条命令；从旧版本的备份恢复时，恢复会迁移副本。
+  - 开发中改过一次：第一版让亏损停止线每次都从库里重新算。首笔成交后 10 分钟内，库里还没有这个品种的行，
+    7 个亏损停止线的运行时测试因此失败（停止线变成"未知"）。改回原来的语义：本进程读到过，就用读到的总数；只有重启后还没读到时，才用库里存着的总数。
+- **已有测试的改动**（依据：技术负责人 2026-11-17 的决定，状态库升到第 2 版）：
+  - `tests/characterization/test_state_database.py`：
+    - `test_init_creates_one_state_database_at_version_1_with_every_table` 改名为 `..._at_version_2_...`，
+      断言 `user_version == 1` 改为 `== 2`；
+    - `test_a_wrong_version_refuses_to_start_and_creates_nothing` 的参数 `[0, 2]` 改为 `[0, 3]`，匹配文字 `expected 1` 改为 `expected 2`；
+      版本 1 现在会被拒绝并提示迁移，另有测试；
+    - 表名清单 `TABLES` 加 `funding_rows`、`funding_coverage`。
+- **新增测试**：
+  - `tests/unit/trading/test_funding_store.py` 12 个（变异自检后 13 个）：版本和迁移；存储；首读和以后的窗口；几个月后总数仍完整；断档；重启；够不到首笔成交；不给存储时不变。
+  - `tests/characterization/test_state_migrate.py` 5 个：启动拒绝并提示；迁移；运行时占着目录时拒绝；有别的问题或换了范围时拒绝；旧版本备份恢复。
+  - `test_strategy_capital_sizing.py` 加 1 个：运行时把资金费行存进状态库。
+  - `test_funding_income.py` 加 1 个：读到的行。
+- **本地**【实际运行结果】：上述测试，以及 `test_loss_stop_audit_runtime.py`、`test_strategy_loss_stop_runtime.py`、`test_loss_stop_audit.py`、
+  `test_strategy_loss_stop.py`、`test_strategy_capital.py`、`test_state_restore.py`、`test_state_dir.py`、`test_risk_state.py`、
+  `test_paper_beside_execution.py`、`test_pilot_leverage_sizing.py`、`test_paper_parts.py`、`tests/architecture` 通过；
+  ruff（全仓库）、`mypy trading/`（97 个文件；合并 master 后是 98 个）、`lint-imports`、离线安全检查通过。
+- **主机上要做的**：试运行用的 `/var/lib/quant/state/mainnet` 是 2026-11-16 用第 1 版初始化的，启动前要运行一次 `state_dir migrate`（运行时停着）。
+  这一步改的是实盘状态目录，由技术负责人做，或者经技术负责人同意后由我做。
+- **变异自检**【实际运行结果】：`scripts/dev/mutants/funding_store.json` 17 个。第一轮 14 个被杀，存活 3 个，都是测试缺口：
+  - "版本 1 的库也报丢了表"：原测试只查有没有版本提示，没查是不是唯一的问题；现在查唯一。
+  - "存着的行晚于首笔成交时不重读"：补了 `test_kept_rows_that_start_after_the_first_fill_are_read_again_from_the_first_fill`。
+  - "迁移不更新清单的版本号"：测试造的旧目录，清单原来就写着 2；现在写 1，和版本 1 初始化时一样。
+  - 单独重跑，这 3 个都被杀。最终 17/17。资金费存储测试现在 13 个。
+- **审计**：合并前由独立审计员审。
+
+### 独立审计（PR #147，2026-11-17）和修复
+
+审计员在自己的克隆里审 ddc78a41：没有阻塞问题，三项应修，六项轻微。逐项处理如下。
+
+- **应修 1：长时间断档后，亏损停止线把不完整的总数当成已知。**
+  - 审计员跑出来：程序停了 100 天，其间付了 −299；重启后 `last_known()` 一直是 −3，真实是 −302。原来的程序在这种情况下报"未知"，会挡住开仓并告警。
+  - 修复：交易过的品种，只要库里的资金费最后一行早于 88 天（`FUNDING_HISTORY_MS`），中间的资金费就再也读不到，
+    仓位基数和亏损停止线都算未知（`StrategyFunding._continuable`）。不管是重启后还是一直在跑的进程，都一样。
+  - 我原来的测试 `test_a_gap_longer_than_binance_s_history_is_unknown_to_the_base_but_the_loss_stop_keeps_the_stored_total` 期望的正是错的行为。
+    这个测试是本 PR 里新写的、还没合并，现在改为 `..._is_unknown_to_the_base_and_to_the_loss_stop`：
+    - 原断言：`assert funding.last_known() == D("-3")`
+    - 新断言：两次 `pytest.raises(RuntimeError, match="88 days")`（重启后的进程、一直在跑的进程各一次）
+  - 另加 `test_a_restart_within_binance_s_history_reads_the_rest`：断档短于 88 天时，重启后会把缺的读回来。
+- **应修 2：变异文件没提交。** 现在 `scripts/dev/mutants/funding_store.json` 和这一轮的 `funding_store_audit_fixes.json` 都提交了。
+- **应修 3：测试缺口**（审计员自己写的变异有存活）：
+  - 迁移的范围检查：补 `test_migrate_under_another_scope_is_refused_on_a_clean_old_directory`；
+  - 迁移的主机锁：补 `test_migrate_is_refused_while_a_runtime_of_the_account_runs_anywhere_on_the_host`；
+  - 存储用的范围：运行时测试检查 `funding_rows` 的范围就是运行时的范围。
+- **轻微，已改：**
+  - 4：迁移不是一个事务。现在建表和改版本号显式放在一个事务里，失败就回滚。测试 `test_a_migration_that_fails_halfway_changes_nothing`。
+  - 5：恢复命令会用备份替换一个完好但版本旧的库。现在拒绝，提示用迁移。测试 `test_restore_refuses_an_intact_database_of_an_older_version`。
+  - 6：存储会接受一次在已有区间开始之前就结束的读取，把中间当成已覆盖。现在按断档拒绝。测试 `test_a_read_that_ends_before_the_kept_span_starts_is_a_gap`。
+  - 7：晚到超过重叠窗口的行永远不计。重叠从 8 小时加到 24 小时（每次多读几行，代价很小）。币安资金费的实际延迟没有核对过。
+  - 8：资金费的行按（范围、交易号）存，依赖币安交易号在账户内唯一。现在按（范围、品种、交易号）存，不再依赖这一点。
+    测试 `test_the_same_transaction_id_on_two_symbols_is_kept_for_each`。表是本 PR 新加的，还没部署，改结构不需要迁移。
+  - 9：
+    - 迁移不会再新建文件，测试 `test_migrate_never_creates_a_file`；
+    - 从旧版本备份恢复后，清单的版本号也更新，测试 `test_restoring_an_old_backup_into_an_old_directory_records_the_new_version`；
+    - 运行手册写明：迁移之前每小时的备份会失败告警，完好的旧版本库只能迁移；
+    - `migrate` 不要求写理由、不要求键入确认，留着（它只加表，旧文件留一份）。
+- **这一轮的测试改动**（都是本 PR 新写的测试，跟着行为改动一起改）：
+  - 第一次读取的测试改名为 `..._24_hours_...`，期望的窗口起点改为结束前 24 小时；
+  - "几个月后仍完整"的窗口上限从 15 小时改为 31 小时；
+  - 运行时测试往前走 27 小时，窗口上限改为 25 小时。
+- **本地**【实际运行结果】：资金费存储测试 18 个、迁移测试 9 个，以及状态、恢复、资金费、亏损停止线的相关测试、`tests/architecture` 通过；
+  ruff、`mypy trading/`（98 个文件）、`lint-imports` 通过。修复的变异自检见下一条。
+- **修复的变异自检**【实际运行结果】：`scripts/dev/mutants/funding_store_audit_fixes.json` 原来 10 个，9 个被杀。
+  存活的"`_stored()` 里不检查断档"是等价变异：`last_known()` 在调用它之前已经检查，刷新时读取会先失败。
+  所以删掉这处重复的检查，`_stored()` 的说明写明原因，变异文件去掉这一条。剩下 9 个全部被杀，9/9。
+
+### 复审（PR #147，089188c0，2026-11-17）和修复
+
+另一位审计员在自己的克隆里复审 089188c0：没有阻塞问题，两项应修，五项轻微。逐项处理如下。
+
+- **应修 1：87 到 88 天的断档，仍把不完整的总数当成已知。**
+  - 原因：每次读取从库里最后一行之前 24 小时开始，币安拒绝 88 天以前的起点；而 `_continuable` 看的是最后一行的时间。
+    最后一行在 87 到 88 天前时，读取永远失败，`last_known()` 却还返回库里的旧总数。
+  - 审计员跑出来：程序跑了 5 天，停了 87.5 天，其间付了 −299；重启后 `last_known()` 是 −3（真实 −302）。
+  - 修复：读取起点只在一个地方算（`StrategyFunding._start`），`_continuable` 用同一个起点判断。
+    起点早于 88 天就算未知，不再看最后一行的时间。重叠从不早于第一笔成交。
+  - 新增测试（`tests/unit/trading/test_funding_store.py`）：
+    - `test_a_gap_the_24_hour_overlap_cannot_reach_back_across_is_unknown`：跑 5 天、停 87.5 天，基数和亏损停止线都是未知。改代码之前跑过，`last_known()` 返回 −3，失败原因正确。
+    - `test_a_gap_the_overlap_still_reaches_back_across_is_read_whole`：停 86.9 天，读回完整的 −302。
+    - `test_a_read_that_starts_at_the_first_fill_within_88_days_is_read_whole`：只跑了 10 分钟就停 87.5 天，起点是第一笔成交（88 天以内），读回完整的 −302。
+- **应修 2：没有测试覆盖连续运行超过 88 天时亏损停止线的总数。**
+  - 补 `test_months_of_running_keep_the_loss_stop_s_total_known`：每 7 小时刷新、跑 120 天，运行中的 `last_known()` 和重启后（交易所连不上）的都等于完整总数。
+- **轻微：**
+  - 3（没改，记下）：一个品种的资金费读取一直报错时，排在它后面的品种的覆盖都不前进（前面的照常前进；下一轮审计更正）。
+    88 天后亏损停止线一直是未知，只能换新的状态目录。这是失败即关闭，影响的是可用性，不是安全。币安对已下架品种怎么回答没有核对过。
+  - 4：变异 "manifest not updated" 在恢复修复之后匹配到两处。改成连同上一行一起匹配，只对准迁移那一处。
+  - 5：审计员的存活变异 X6、X7、X2：
+    - X6：损坏的第 1 版备份被当成"旧版本"接受。补 `test_a_version_1_backup_that_also_lost_a_table_is_refused`（tests/characterization/test_state_migrate.py）。
+    - X7：损坏的第 1 版数据库既不能迁移，也不能恢复。补 `test_a_version_1_database_that_also_lost_a_table_is_restored_not_sent_to_migrate`。
+    - X2（88 天改成 89 天）：由上面 87.5 天的测试抓住。
+    - X4、X8、X9：审计员也认为实际等价（关闭连接会回滚），不补。
+  - 6：上一轮的记录漏了一处断言改动。断档测试里把"一直在跑的进程"的 `funding.current()` 换成了重启后的 `again.current()`：
+    - 原：`with pytest.raises(RuntimeError, match="funding"): funding.current()`
+    - 新：`with pytest.raises(RuntimeError, match="funding"): again.current()`
+  - 7：`migrate` 不要求理由和确认，留着（同上一轮）。
+- **两处旧变异跟着代码改**：
+  - "no reread from the first fill"（`funding_store.json`）：起点挪进 `_start` 之后改为对准 `_start` 里的判断；
+  - "gap never unknown"（`funding_store_audit_fixes.json`）：改为对准 `_continuable` 的新判断。
+  - 两个都被杀。
+- **变异自检**【实际运行结果】：
+  - 新文件 `scripts/dev/mutants/funding_store_reaudit.json` 6 个，6/6 被杀。
+  - `funding_store.json` 17 个、`funding_store_audit_fixes.json` 9 个：两处改过的各自重跑，都被杀；其余在这一轮也都被杀。
+- **已有测试的改动**：没有（新增的都是新测试）。
+- **本地**【实际运行结果】：
+  - 资金费存储、亏损停止线、仓位基数、迁移、恢复的测试通过；
+  - ruff 通过，`mypy trading/`（98 个文件）通过。
+- **CI 抓到的漏改**【实际运行结果】：`tests/unit/trading/test_lost_state_files.py::test_each_store_declares_exactly_the_tables_initialization_creates`
+  失败。它列出每个存储声明的表，要和初始化建的表一致；资金费存储是本 PR 新加的，没列进去。这是本 PR 一开始就有的漏改，本地没跑这个文件。
+  - 改动（跟着已批准的第 2 版状态库）：`declared` 列表加上 `*SqliteFundingStore.TABLES`；断言本身没改。
+
+### 复审修复的审计（PR #147，089188c0..e6918b5b，2026-11-17）和修复
+
+第三位审计员只看这次修复：没有阻塞问题，一项应修，五项轻微。
+
+- **应修 S1：一个品种有成交但库里还没有它的资金费行时，检查跳过它。**
+  - 情形：进程成功读过一次之后，这个品种才第一次成交，之后读取一直失败（交易所连不上，或者排在前面的品种读取报错）。
+    88 天后它的资金费再也读不到，运行中的进程却还把上次的总数当已知。重启的进程正确地报未知，两边不一致。
+  - 修复：没有库存的行时，读取从第一笔成交开始（`_start` 本来就这样算），检查不再跳过它。
+  - 测试 `test_a_symbol_first_filled_after_the_last_read_that_cannot_be_read_for_88_days_is_unknown`：
+    改代码之前跑过，运行中的进程没有报错，失败原因正确。
+- **轻微：**
+  - M1：检查"不误报未知"的一侧没有测试（变异"严 24 小时""87 天"存活）。补 `test_while_the_read_start_is_inside_88_days_the_kept_total_stays_known_with_the_venue_down`：
+    交易所连不上，读取起点在 87.5 天前，运行中和重启后都是 −3。
+  - M2：检查遇到没成交的品种就停下（变异存活）。补 `test_a_symbol_never_filled_listed_first_does_not_hide_a_filled_one_s_gap`：没成交的品种排在前面。
+  - M3：正好 88 天的那一毫秒没有固定。补 `test_the_read_start_exactly_88_days_back_is_still_known`：
+    起点正好 88 天前是已知，再过 1 毫秒是未知（和适配器的 `<` 一致）。
+  - M4：上一节轻微项 3 的说法不准，已更正（只有排在读取报错的品种后面的品种不前进）。
+  - M5：把第 2 版备份恢复到清单写着第 1 版的目录后，清单的版本号没改（只在备份是旧版本时才改）。
+    现在恢复后只要版本号不同就改。X7 那个测试加上清单的断言：
+    这是本 PR 新写的测试，跟着修复加断言，原有断言没改。
+- **变异自检**【实际运行结果】：
+  - 新文件 `scripts/dev/mutants/funding_store_reaudit2.json` 6 个：审计员存活的 A6、A4、A14、A13、A1，加上清单那一处。6/6 被杀。
+  - 前两轮有两个变异对准的是这次改掉的那一行，改为对准新的一行，重跑都被杀：
+    - `funding_store_audit_fixes.json` 的 "gap never unknown"；
+    - `funding_store_reaudit.json` 的 "the gap is checked at the kept rows' end again"。
+- **本地**【实际运行结果】：资金费存储（26 个）、亏损停止线、仓位基数、迁移、恢复、状态目录、存储表的测试 148 个通过。
+
 ## 试运行前一键检查（2026-11-17，轻流程：只读工具）
 
 - **决定**：技术负责人 2026-11-17 选了"试运行前一键检查"。
