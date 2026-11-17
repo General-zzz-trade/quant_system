@@ -1,0 +1,250 @@
+{
+ "info": {
+  "contracts_seen": 619,
+  "contracts_ever_in_universe": 416,
+  "rows": 174879,
+  "mean_names_per_day": 98.7459062676454
+ },
+ "targets": {
+  "ret_14_scaled": {
+   "kind": "regression",
+   "null": "within_day",
+   "models": {
+    "ridge": {
+     "score": 0.0029351743296593897,
+     "checks": {
+      "mean_ic_above_0": true,
+      "t_spaced_at_least_3": false,
+      "years": false,
+      "above_null": false
+     },
+     "skill": false,
+     "null_threshold": 0.004035021123917295,
+     "null_mean": 0.00010606595410376685,
+     "by_year": null,
+     "ic": {
+      "mean_ic": 0.0029351743296593897,
+      "t_spaced": -0.17954668948869296,
+      "n_spaced": 101,
+      "by_year": {
+       "2022": -0.011901780849970544,
+       "2023": -0.0653471377903765,
+       "2024": 0.02437484515294785,
+       "2025": 0.07643717773833407
+      }
+     },
+     "n_test": 139989,
+     "btc_eth_rows_with_prediction": 2804
+    },
+    "lgbm": {
+     "score": 0.039871725058118763,
+     "checks": {
+      "mean_ic_above_0": true,
+      "t_spaced_at_least_3": false,
+      "years": true,
+      "above_null": true
+     },
+     "skill": false,
+     "null_threshold": 0.0050180871406481364,
+     "null_mean": 0.0002369101347876309,
+     "by_year": null,
+     "ic": {
+      "mean_ic": 0.039871725058118763,
+      "t_spaced": 2.177092953764615,
+      "n_spaced": 101,
+      "by_year": {
+       "2022": 0.01021534369101949,
+       "2023": 0.011744001734590242,
+       "2024": 0.046270704364416756,
+       "2025": 0.1011435282802563
+      }
+     },
+     "n_test": 139989,
+     "btc_eth_rows_with_prediction": 2804
+    }
+   },
+   "skill": false
+  },
+  "trend_14": {
+   "kind": "binary",
+   "null": "blocks",
+   "models": {
+    "logistic": {
+     "score": 0.6927970024428544,
+     "checks": {
+      "auc_at_least_0.55": true,
+      "above_null": true,
+      "years": true
+     },
+     "skill": true,
+     "null_threshold": 0.5214104032822271,
+     "null_mean": 0.5118124755940519,
+     "by_year": {
+      "2022": 0.7081771467247694,
+      "2023": 0.731475156706463,
+      "2024": 0.7304597381942911,
+      "2025": 0.69353775221878
+     },
+     "ic": null,
+     "n_test": 137619,
+     "btc_eth_rows_with_prediction": 2804
+    },
+    "lgbm": {
+     "score": 0.6832883701212848,
+     "checks": {
+      "auc_at_least_0.55": true,
+      "above_null": true,
+      "years": true
+     },
+     "skill": true,
+     "null_threshold": 0.5189522318489886,
+     "null_mean": 0.5062391656537903,
+     "by_year": {
+      "2022": 0.6133008921330089,
+      "2023": 0.717619405187052,
+      "2024": 0.7170588660087847,
+      "2025": 0.7304235778749966
+     },
+     "ic": null,
+     "n_test": 137619,
+     "btc_eth_rows_with_prediction": 2804
+    }
+   },
+   "skill": true
+  },
+  "fwd_vol_7": {
+   "kind": "regression",
+   "null": "blocks",
+   "models": {
+    "ridge": {
+     "score": 0.051260232733069455,
+     "checks": {
+      "gain_at_least_0.02": true,
+      "above_null": true,
+      "years": true
+     },
+     "skill": true,
+     "null_threshold": 0.0427820996493124,
+     "null_mean": -22.278177663383815,
+     "by_year": {
+      "2022": 0.22936603238091813,
+      "2023": -0.17047777535400332,
+      "2024": 0.11675456398302608,
+      "2025": 0.06858547674840121
+     },
+     "ic": {
+      "mean_ic": 0.5651865144868551,
+      "t_spaced": 33.999589604822745,
+      "n_spaced": 101,
+      "by_year": {
+       "2022": 0.4882511911217307,
+       "2023": 0.5480061878147557,
+       "2024": 0.5759683415648356,
+       "2025": 0.6623304874997811
+      }
+     },
+     "n_test": 140037,
+     "btc_eth_rows_with_prediction": 2818
+    },
+    "lgbm": {
+     "score": 0.03994732557982039,
+     "checks": {
+      "gain_at_least_0.02": true,
+      "above_null": true,
+      "years": true
+     },
+     "skill": true,
+     "null_threshold": 0.024408398729007845,
+     "null_mean": 0.00588980467813135,
+     "by_year": {
+      "2022": 0.12069170182523581,
+      "2023": -0.05891702038938551,
+      "2024": 0.05560584925349832,
+      "2025": 0.06368769539615116
+     },
+     "ic": {
+      "mean_ic": 0.5636300567446817,
+      "t_spaced": 32.92769178620801,
+      "n_spaced": 101,
+      "by_year": {
+       "2022": 0.46599555208017407,
+       "2023": 0.5646563381526858,
+       "2024": 0.5809986843448479,
+       "2025": 0.6559785672461601
+      }
+     },
+     "n_test": 140037,
+     "btc_eth_rows_with_prediction": 2818
+    }
+   },
+   "skill": true
+  },
+  "fwd_vol_14": {
+   "kind": "regression",
+   "null": "blocks",
+   "models": {
+    "ridge": {
+     "score": -0.039239306469371904,
+     "checks": {
+      "gain_at_least_0.02": false,
+      "above_null": false,
+      "years": true
+     },
+     "skill": false,
+     "null_threshold": 0.049962172332102914,
+     "null_mean": -35.19294543292882,
+     "by_year": {
+      "2022": 0.33830061668357847,
+      "2023": -0.6657224408449985,
+      "2024": 0.12956736957833503,
+      "2025": 0.07510185454918084
+     },
+     "ic": {
+      "mean_ic": 0.6142795132553577,
+      "t_spaced": 41.423671929368844,
+      "n_spaced": 101,
+      "by_year": {
+       "2022": 0.536457680734851,
+       "2023": 0.5831874630571807,
+       "2024": 0.6313107967582129,
+       "2025": 0.7238223806745554
+      }
+     },
+     "n_test": 138807,
+     "btc_eth_rows_with_prediction": 2804
+    },
+    "lgbm": {
+     "score": 0.04005598034749902,
+     "checks": {
+      "gain_at_least_0.02": true,
+      "above_null": true,
+      "years": true
+     },
+     "skill": true,
+     "null_threshold": 0.03248478549913837,
+     "null_mean": 0.013113498403546586,
+     "by_year": {
+      "2022": 0.2614044087901156,
+      "2023": -0.2370239263372348,
+      "2024": 0.08546665563977107,
+      "2025": 0.07376938331872085
+     },
+     "ic": {
+      "mean_ic": 0.6146638031045923,
+      "t_spaced": 41.42346983811737,
+      "n_spaced": 101,
+      "by_year": {
+       "2022": 0.5178619250081404,
+       "2023": 0.6123639779130275,
+       "2024": 0.6275221423112536,
+       "2025": 0.717493768955861
+      }
+     },
+     "n_test": 138807,
+     "btc_eth_rows_with_prediction": 2804
+    }
+   },
+   "skill": true
+  }
+ }
+}
