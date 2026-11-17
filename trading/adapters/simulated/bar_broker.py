@@ -22,8 +22,9 @@ runtime's exchange stop, a STOP_MARKET closePosition at the position's entry pri
 guards the rest of that bar and every later one, at the current average entry; it fills by the isolated-mode stop
 rule above (and paper's BarStopModel). A maker entry fills at its limit inside the bar; the stop then checks that
 whole bar too, as if its extreme came after the fill (the adverse order, research only: owner 2026-11-17, the cost
-lever; paper's simulated exchange refuses a broker with a stop and places its own). In isolated mode it replaces ``set_stop`` (the pilot runs 10x isolated with a 4.5 % stop, 2026-11-16) and must lie
-inside the liquidation distance; liquidation is still modelled first.
+lever; paper's simulated exchange refuses a broker with a stop and places its own). In isolated mode it replaces
+``set_stop`` (the pilot runs 10x isolated with a 4.5 % stop, 2026-11-16) and must lie inside the liquidation
+distance; liquidation is still modelled first.
 
 Research only, a per-position distance (``set_next_stop_pct``; tech lead 2026-11-17, the lab's stop that tightens with
 low volatility, research/lab/runs/2026-11-17/vol_stop.md): the driver gives a distance with a decision's orders; a
