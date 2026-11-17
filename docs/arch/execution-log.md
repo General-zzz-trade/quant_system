@@ -4508,3 +4508,11 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   因为没有测试经过 `replay` 的对齐。补了 `test_replay_gives_each_decision_the_distance_known_at_its_close`，单独重跑这个变异被杀。最终 21/21。
 - **本地**【实际运行结果】：两个新测试文件和经纪商、模拟、评审员、模拟盘逐根对照的相关测试通过；`tests/architecture` 通过（一个变量原来叫
   `spread`，碰上"研究代码只能通过共用经纪商算成本"的检查，改名 `sigma`）；ruff、`mypy trading/`、`lint-imports` 通过。
+- **CI 补（同日）：已有测试的改动**。`test_target_runtime_resilience.py::test_paper_snapshot_covers_every_mutable_broker_attribute`
+  要求经纪商每个可变属性都在模拟盘的快照里；新加的两个属性不在，CI 的一个分片失败。两个属性只在研究里用，模拟盘从不设，
+  永远是 None，重启后也是 None，所以不进快照、不改模拟盘的状态格式。依据：技术负责人 2026-11-17 的决定（实验室测按波动率收紧止损）。
+  - 原断言：`assert set(vars(broker)) == set(_BROKER_STATE) | rebuilt_from_config | handled_separately`
+  - 新断言：`assert set(vars(broker)) == set(_BROKER_STATE) | rebuilt_from_config | handled_separately | research_only`
+    （`research_only = {"next_stop_pct", "position_stop_pct"}`），并加一条
+    `assert broker.next_stop_pct is None and broker.position_stop_pct is None`（跑 50 个周期之后，模拟盘确实没设过）。
+  - 本地【实际运行结果】：这个测试文件通过。
