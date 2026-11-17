@@ -68,7 +68,10 @@ _ALGO_DOES_NOT_EXIST = (-2013, -2011)
 # Algo-order statuses. Anything not listed (CANCELED, EXPIRED, REJECTED, a new word) means the stop is gone.
 ACTIVE = frozenset({"NEW", "TRIGGERING"})
 TRIGGERED = frozenset({"TRIGGERED", "FINISHED"})
-_IMMEDIATE_TRIGGER = -2021         # "Order would immediately trigger": price is already beyond the stop
+# A stop refused because the price is already beyond its trigger (the runtime then flattens: stop_breached).
+# -2021 "Order would immediately trigger."; -4142 "REJECT: take profit or stop order will be triggered immediately"
+# (tech lead 2026-11-17: counts the same; which of the two the algo-order endpoint returns is not verified).
+_IMMEDIATE_TRIGGER = frozenset({-2021, -4142})
 
 # Placement answers that mean "rejected: nothing was placed" (task 1, tech lead 2026-11-17). Only a 4xx answer whose
 # error code is listed here; the codes are from Binance's error-code page
@@ -499,7 +502,7 @@ class BinanceAdapter:
         except Exception as exc:
             code = _refused_code(exc)
             if code is not None:
-                return {"status": "rejected", "code": code, "msg": str(exc), "breached": code == _IMMEDIATE_TRIGGER}
+                return {"status": "rejected", "code": code, "msg": str(exc), "breached": code in _IMMEDIATE_TRIGGER}
             logger.error("Binance stop outcome unknown for %s: %s", client_algo_id, exc)
             return {"status": "error", "code": getattr(exc, "code", None), "msg": str(exc)}
         return {"status": "submitted", "algoId": str(data.get("algoId", ""))}

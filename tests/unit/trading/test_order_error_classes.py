@@ -101,8 +101,12 @@ def test_no_http_answer_is_an_unknown_outcome(kind, error):
     assert _place(adapter, kind)["status"] == "error"
 
 
-@pytest.mark.parametrize("status,code,breached", [(400, -2021, True), (400, -2019, False), (400, -4120, False)])
+@pytest.mark.parametrize("status,code,breached", [(400, -2021, True), (400, -4142, True), (400, -2019, False),
+                                                  (400, -4120, False)])
 def test_only_an_immediate_trigger_refusal_reports_a_breached_stop(status, code, breached):
+    """-2021 "Order would immediately trigger." and -4142 "REJECT: take profit or stop order will be triggered
+    immediately" both mean the price is already beyond the trigger (tech lead 2026-11-17: -4142 counts as breached;
+    which of the two the algo-order endpoint returns is not verified)."""
     fake = FakeBinance(make_bars(10), clock=lambda: NOW)
     adapter = _adapter(fake)
     _failing_posts(fake, rest_error(status, code))
