@@ -2,8 +2,8 @@
  [
   "the gap is checked at the kept rows' end again",
   "trading/application/equity.py",
-  "if covered is not None and self._start(covered, int(since * 1000)) < oldest:",
-  "if covered is not None and covered[1] < oldest:",
+  "            if self._start(self.store.coverage(symbol), int(since * 1000)) < oldest:",
+  "            if (c := self.store.coverage(symbol)) is not None and c[1] < oldest:",
   "tests/unit/trading/test_funding_store.py"
  ],
  [

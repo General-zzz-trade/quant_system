@@ -4855,8 +4855,8 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
 - **应修 2：没有测试覆盖连续运行超过 88 天时亏损停止线的总数。**
   - 补 `test_months_of_running_keep_the_loss_stop_s_total_known`：每 7 小时刷新、跑 120 天，运行中的 `last_known()` 和重启后（交易所连不上）的都等于完整总数。
 - **轻微：**
-  - 3（没改，记下）：任何一个品种的资金费读取一直报错，所有品种的覆盖都不前进，88 天后亏损停止线一直是未知，只能换新的状态目录。
-    这是失败即关闭，影响的是可用性，不是安全。币安对已下架品种怎么回答没有核对过。
+  - 3（没改，记下）：一个品种的资金费读取一直报错时，排在它后面的品种的覆盖都不前进（前面的照常前进；下一轮审计更正）。
+    88 天后亏损停止线一直是未知，只能换新的状态目录。这是失败即关闭，影响的是可用性，不是安全。币安对已下架品种怎么回答没有核对过。
   - 4：变异 "manifest not updated" 在恢复修复之后匹配到两处。改成连同上一行一起匹配，只对准迁移那一处。
   - 5：审计员的存活变异 X6、X7、X2：
     - X6：损坏的第 1 版备份被当成"旧版本"接受。补 `test_a_version_1_backup_that_also_lost_a_table_is_refused`（tests/characterization/test_state_migrate.py）。
@@ -4881,6 +4881,33 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
 - **CI 抓到的漏改**【实际运行结果】：`tests/unit/trading/test_lost_state_files.py::test_each_store_declares_exactly_the_tables_initialization_creates`
   失败。它列出每个存储声明的表，要和初始化建的表一致；资金费存储是本 PR 新加的，没列进去。这是本 PR 一开始就有的漏改，本地没跑这个文件。
   - 改动（跟着已批准的第 2 版状态库）：`declared` 列表加上 `*SqliteFundingStore.TABLES`；断言本身没改。
+
+### 复审修复的审计（PR #147，089188c0..e6918b5b，2026-11-17）和修复
+
+第三位审计员只看这次修复：没有阻塞问题，一项应修，五项轻微。
+
+- **应修 S1：一个品种有成交但库里还没有它的资金费行时，检查跳过它。**
+  - 情形：进程成功读过一次之后，这个品种才第一次成交，之后读取一直失败（交易所连不上，或者排在前面的品种读取报错）。
+    88 天后它的资金费再也读不到，运行中的进程却还把上次的总数当已知。重启的进程正确地报未知，两边不一致。
+  - 修复：没有库存的行时，读取从第一笔成交开始（`_start` 本来就这样算），检查不再跳过它。
+  - 测试 `test_a_symbol_first_filled_after_the_last_read_that_cannot_be_read_for_88_days_is_unknown`：
+    改代码之前跑过，运行中的进程没有报错，失败原因正确。
+- **轻微：**
+  - M1：检查"不误报未知"的一侧没有测试（变异"严 24 小时""87 天"存活）。补 `test_while_the_read_start_is_inside_88_days_the_kept_total_stays_known_with_the_venue_down`：
+    交易所连不上，读取起点在 87.5 天前，运行中和重启后都是 −3。
+  - M2：检查遇到没成交的品种就停下（变异存活）。补 `test_a_symbol_never_filled_listed_first_does_not_hide_a_filled_one_s_gap`：没成交的品种排在前面。
+  - M3：正好 88 天的那一毫秒没有固定。补 `test_the_read_start_exactly_88_days_back_is_still_known`：
+    起点正好 88 天前是已知，再过 1 毫秒是未知（和适配器的 `<` 一致）。
+  - M4：上一节轻微项 3 的说法不准，已更正（只有排在读取报错的品种后面的品种不前进）。
+  - M5：把第 2 版备份恢复到清单写着第 1 版的目录后，清单的版本号没改（只在备份是旧版本时才改）。
+    现在恢复后只要版本号不同就改。X7 那个测试加上清单的断言：
+    这是本 PR 新写的测试，跟着修复加断言，原有断言没改。
+- **变异自检**【实际运行结果】：
+  - 新文件 `scripts/dev/mutants/funding_store_reaudit2.json` 6 个：审计员存活的 A6、A4、A14、A13、A1，加上清单那一处。6/6 被杀。
+  - 前两轮有两个变异对准的是这次改掉的那一行，改为对准新的一行，重跑都被杀：
+    - `funding_store_audit_fixes.json` 的 "gap never unknown"；
+    - `funding_store_reaudit.json` 的 "the gap is checked at the kept rows' end again"。
+- **本地**【实际运行结果】：资金费存储（26 个）、亏损停止线、仓位基数、迁移、恢复、状态目录、存储表的测试 148 个通过。
 
 ## 试运行前一键检查（2026-11-17，轻流程：只读工具）
 
