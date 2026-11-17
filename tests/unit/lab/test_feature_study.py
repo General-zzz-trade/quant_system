@@ -97,3 +97,16 @@ def test_an_infinite_feature_value_is_treated_as_missing():
     test = pd.DataFrame({"a": [-np.inf, 5.0]})
     filled_train, filled_test = st.fill(train, test)
     assert filled_train["a"].tolist() == [1.0, 2.0, 2.0, 3.0] and filled_test["a"].tolist() == [2.0, 5.0]
+
+
+def test_the_naive_forecast_may_use_several_columns():
+    rng = np.random.default_rng(5)
+    n = 3 * 365
+    index = pd.Index(T0 + np.arange(n, dtype=np.int64) * DAY)
+    a, b = pd.Series(rng.normal(size=n), index=index), pd.Series(rng.normal(size=n), index=index)
+    y = a + b + rng.normal(0, 0.3, n)
+    x = pd.DataFrame({"a": a, "b": b}, index=index)
+    label_end = pd.Series(index.to_numpy() + 7 * DAY, index=index)
+    one = st.evaluate(x, y, label_end, (2021, 2022, 2023), kind="regression", model="ridge", naive="a")
+    both = st.evaluate(x, y, label_end, (2021, 2022, 2023), kind="regression", model="ridge", naive=["a", "b"])
+    assert one["r2_gain"] > 0.3 and abs(both["r2_gain"]) < 0.02          # b is news to the one-column naive only

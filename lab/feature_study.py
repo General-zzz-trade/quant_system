@@ -103,8 +103,10 @@ def _r2(y: np.ndarray, p: np.ndarray) -> float:
 
 
 def evaluate(x: pd.DataFrame, y: pd.Series, label_end: pd.Series, years: Sequence[int], *, kind: str, model: str,
-             naive: str | None = None) -> dict:
-    """Out-of-sample predictions over the test years and their skill (see the module docstring)."""
+             naive: str | Sequence[str] | None = None) -> dict:
+    """Out-of-sample predictions over the test years and their skill (see the module docstring). ``naive``: the
+    column, or columns, of the naive forecast (a linear fit on them alone)."""
+    naive_cols = [naive] if isinstance(naive, str) else list(naive or [])
     from sklearn.metrics import roc_auc_score
     keep = y.notna()
     x, y, label_end = x.loc[keep], y.loc[keep], label_end.loc[keep]
@@ -120,7 +122,7 @@ def evaluate(x: pd.DataFrame, y: pd.Series, label_end: pd.Series, years: Sequenc
         if kind == "binary":
             by_year[fold["year"]] = float(roc_auc_score(yt, p)) if 0 < yt.mean() < 1 else None
         else:
-            q = _fit_predict(x[[naive]].iloc[tr], y.iloc[tr], x[[naive]].iloc[te], kind, "ridge")
+            q = _fit_predict(x[naive_cols].iloc[tr], y.iloc[tr], x[naive_cols].iloc[te], kind, "ridge")
             naive_preds.append(pd.Series(q, index=x.index[te]))
             by_year[fold["year"]] = _r2(yt, p) - _r2(yt, q)
     pred = pd.concat(preds)
