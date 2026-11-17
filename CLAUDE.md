@@ -4,9 +4,11 @@
 
 - **Not approved for live trading. No strategy has a verified edge.** Older Sharpe/return figures in docs,
   configs, `models_v8/` or commit messages are unverified claims, not results.
-- **Engineering:** every migration step before M5 (S1–S12) is merged and audited (2026-11-16).
+- **Engineering:** every migration step before M5 (S1–S12) is merged and audited (2026-11-16). The runtime
+  extension (`docs/arch/runtime-lab-strategies-plan.md`) has R1–R7 done on stacked PRs #119–#130, not merged yet;
+  the R8 audit is in progress.
 - **Path to live (owner, 2026-11-16):** no paper and no testnet stage. A strategy that passes the lab's backtest
-  checks goes to a small-capital mainnet pilot with hard limits (-3 % a day; a 15 % cumulative loss of the strategy
+  checks goes to a small-capital mainnet pilot with hard limits (-3 % a day: `MAX_DAILY_DRAWDOWN_PCT=3`, which a person sets, the code default is 5; a 15 % cumulative loss of the strategy
   capital flattens and stops; kill switch); the owner scales it. This replaces the 4-week testnet run of M5; the checks that could only be made on the testnet
   (a second closePosition stop) are made in the pilot. Still required first: the owner marks the signed spec
   passed (code never does), no position outside the strategy ledger on the account, an alert channel (the alert file) and the heartbeat,
@@ -85,8 +87,9 @@
   - 2025-11-16..2026-11-12 has been viewed several times and must not be used for any selection.
   - The next final test is forward data after 2026-11-13.
 - **Venue:** Binance USDT-margined perpetuals. Since 2026-11-16 research and trading cover all of them (tech lead;
-  delivery and USDC-margined contracts are not used); the runtime still trades the BTC/ETH spec until it is
-  extended through the full money-path process. The Bybit, OKX and Polymarket code was deleted on 2026-11-15.
+  delivery and USDC-margined contracts are not used); the runtime trades the symbols a signed spec lists, at most
+  10, with the strategy it names (R1–R7); the only spec so far is the BTC/ETH overlay. The Bybit, OKX and
+  Polymarket code was deleted on 2026-11-15.
 - **Research lab (tech lead, 2026-11-16):** a scheduled crew in this session (Asia/Shanghai): scout 20:54, judge
   22:54, engineer 02:51, morning brief 07:17 (push), weekly review Sunday. It follows the owner's lab prompt
   as written: ideas are scanned and tested the same night and a champion and two challengers are named each
@@ -134,15 +137,26 @@ python -m trading.infrastructure.manual --state-dir <dir> position --symbol BTCU
 ## Architecture (as actually wired)
 
 **Runtimes:**
-- `runner/binance_target.py`: entry point of the overlay strategy, a thin shell (S10) over
+- `runner/binance_target.py`: entry point of the target runtime, a thin shell (S10) over
   `trading/infrastructure/cli/target.py` (start-up checks, composition of both modes, loop). It supplies what
   `trading` may not import: the signed spec loader and the TCA log writer. It loads no `lab` module.
   - The loop is `trading/application/runtime.py`; it wires `market_poller.py`, `exit_supervisor.py` and `status.py`
     (S3c). In execution mode the three sides are isolated: one that raises blocks every entry until it works again
-    and the others still run; one symbol's failing bar blocks only that symbol. One symbol's hourly step is
-    `trading/application/session.py`;
-    `trading/infrastructure/target.py` wires the sessions.
-  - Each closed 1h bar: target (`trading/domain/strategy/overlay.py`) → `trading/domain/rebalance.plan` → orders.
+    and the others still run; with a per-symbol strategy one symbol's failing bar blocks only that symbol. One
+    symbol's hourly step is `trading/application/session.py`; `trading/infrastructure/target.py` wires the sessions
+    with the spec's strategy. The one architecture description is `docs/arch/target.md`.
+  - Each closed 1h bar: target from the signed spec's strategy → `trading/domain/rebalance.plan` → orders.
+    - One strategy interface for research and the runtime (`trading/domain/strategy/base.py`: `Strategy`, `Window`,
+      `PerSymbol`, `references`, `cross_sectional`): the BTC/ETH overlay (`overlay.py`) and the lab's 29 ideas
+      (`ideas.py`). The spec (`spec.py`, schema 1 = the overlay, schema 2 = a named strategy) is parsed strictly:
+      at most 10 symbols, unknown fields refused; negative targets trade as 0 unless it sets `allow_short`.
+    - A per-symbol strategy decides each symbol as its bar arrives. A cross-sectional one, or one that reads other
+      symbols (`references`), decides every symbol at one close with one call (`market_poller.py`, R3/R7d): while a
+      symbol's bar is missing nobody decides, and a symbol still missing past the late-entry limit is blocked.
+    - Each symbol waits for and checks funding at its own settlement interval, read from the exchange (R4);
+      unknown, it takes no entries.
+    - The exit side reads the whole account's positions once per reconciliation (`exit_supervisor.reconcile`,
+      R5); a symbol missing from that snapshot, or an unreadable snapshot, reads its own.
   - Paper mode runs the same execution path (gates, journal, lifecycle, stops, reconciliation) on the simulated
     exchange (`trading/adapters/simulated`: the research brokers, stops by bar high/low; ADR-0013 plan B).
     `ModePolicy` (`trading/infrastructure/modes.py`) is the one list of the differences. Paper uses the code's
@@ -235,12 +249,14 @@ that reads the environment. The entry point reads it once into a frozen `Runtime
   deleted). The maker limit offset is defined once:
   `trading.domain.orders.LIMIT_OFFSET_BPS`.
 - `lab/paper_compare.py` (S11, G6): a paper directory against `lab.simulate` on a dated data snapshot, fill by fill
-  (paper records no bars). Exit 0 "一致", 1 "不一致" (first differing fill), 2 "无法比较" (data missing, or not
-  what paper saw). A difference is an intended divergence only through a fact of the record plus its
-  `paper_divergence` event. Prints fills only, no returns.
+  (paper records no bars); research is rebuilt from the strategy the paper record names (R7d). Exit 0 "一致",
+  1 "不一致" (first differing fill), 2 "无法比较" (data missing, or not what paper saw). A difference is an
+  intended divergence only through a fact of the record plus its `paper_divergence` event. Prints fills only,
+  no returns.
 - `lab/um_judge.py`: the research lab's judge as a tested tool (periods, the yearly symbol lists, a configuration =
   an idea's parameters plus a stop variant, walk-forward choice, score, final check; the holdout period is replayed
-  only in `final`, for survivors). `lab.simulate` takes `reenter_after_stop="signal_reset"` (after a stop, no entry
+  only in `final`, for survivors); it replays strategies through the interface, the registered ideas from
+  `lab.um_lab.lab_ideas()` (R7c). `lab.simulate` takes `reenter_after_stop="signal_reset"` (after a stop, no entry
   until the target has been 0). How a run uses it: `research/lab/README.md`.
 - Every study writes its gate before results exist. Protocols live in `research/protocols/`.
 

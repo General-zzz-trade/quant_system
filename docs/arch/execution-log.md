@@ -4500,6 +4500,63 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   执行模式每秒下单限制用真实时钟，两次运行里 ETH 的入场是否被推迟取决于机器快慢（与 R3 运行时测试的问题相同）。把这个测试的限制时钟
   也固定为测试世界的时钟（测试辅助的改动，断言不变）。
 
+## R9 删除过时的文档（2026-11-16 晚，轻流程）
+
+- 依据：`docs/arch/runtime-lab-strategies-plan.md` 的"文档排查"一节（技术负责人 2026-11-16：计划完成后删除过时的文档，先排查）。
+  分支 `r9-docs`，基于 `r7d-paper-compare`（R1–R7 之后）。只改文档、技能和审计员定义、测试和配置里的说明文字，不改生产代码。
+- **计划文件**：从分支 `plan-runtime-lab-strategies` 带入 `docs/arch/runtime-lab-strategies-plan.md`；R1–R7 标为已完成（PR #119–#123、
+  #125–#130，叠加的链，还没有合并到 master），R8 标为审计进行中，R9 是这次改动。
+- **删除的 8 个文档**（行数按 `git show origin/r7d-paper-compare:<文件> | wc -l`，共 2,413 行；原文在 git 历史里）：
+  - `research.md` 223 行；`CHANGELOG.md` 140 行；`docs/known_test_failures.md` 25 行；
+  - `docs/arch/current-state.md` 764 行；`docs/arch/doc-vs-code.md` 194 行；`docs/arch/migration-plan.md` 403 行；
+    `docs/arch/roadmap.md` 122 行；`docs/arch/design-2026-11-m5.md` 542 行。
+- **改写的文档**：
+  - `docs/arch/target.md`：唯一的架构说明。分层和包结构、端口、进程和状态、一个周期（行情侧：资金费间隔、按品种或一起决定；
+    一个品种；退出侧：整账户持仓快照）、策略接口（`Strategy`、`Window`、`PerSymbol`、`references`、`cross_sectional`）、
+    实验室的想法（`ideas.py`）、第 2 版规格的严格解析、做空（`allow_short`）、评审员和模拟盘对照、不变量和检查它们的测试。
+    ADR 和代码引用的 2.1、2.3、第 3 节保留原来的主题。
+  - `docs/m5_checklist.md`（文件名不变，别的文档引用它）：小资金主网试运行的核对清单：规格由技术负责人标为通过、账户里没有账本以外的
+    东西、10 倍逐仓、`.env`（`STRATEGY_CAPITAL_USDT`、`STRATEGY_LEVERAGE`、`STOP_PCT`、`MAX_DAILY_DRAWDOWN_PCT=3`、`ALERT_FILE`、
+    `HEARTBEAT_URL`）、主机安装、`state_dir init`、备份、急停命令、每日检查、停止和收尾、演练。
+  - `docs/binance_runbook.md`：第 4 节改为执行模式（试运行用主网单元，测试网单元仍在）；告警出口以 `ALERT_FILE` 为准，Telegram 可选；
+    执行状态在 `/var/lib/quant/state/<网络>`；备份和恢复的命令按网络写；第 9 节按 2026-11-16 的上实盘路径重写。
+  - `docs/deploy_truth.md`：去掉 Docker 一节；状态行改正（两个执行单元由人启动）；`quant-alert@` 走配置的告警出口；检查命令用
+    `/var/lib/quant` 下的执行状态。
+  - `README.md`：去掉 Bybit、Docker、Rust 和 `runner/offline/broker.py`；指向 `CLAUDE.md` 和 `docs/arch/target.md`；运行时交易规格里的
+    品种；"不会自动解除暂停"改为技术负责人定的两个例外。
+  - `CLAUDE.md`：工程进度加 R1–R7 和 R8；交易所一句改为"交易签名规格列出的品种，最多 10 个"；架构一节加策略接口、第 2 版规格、
+    一起决定、每个品种的资金费间隔、整账户持仓快照；评审员和对照工具加 R7c、R7d；同方向第二张止损"在测试网上查"改为"在试运行里查"；
+    去掉"取代连亏 3 笔"的旁注。其余不变。
+  - `research/lab/README.md`：去掉"连亏 3 笔"和 Telegram；"实盘一侧改好前要人工解除暂停"改为实盘已经 4 小时自动解除。
+  - 两个技能和审计员定义：去掉 `roadmap.md`、`migration-plan.md`、`current-state.md`，以及已删除的 `scripts/check_deploy_scope.py`、
+    `shared/exposure_gate.py`、`Dockerfile`、`docker-compose.yml`、`scripts/deploy.sh`、`config/`；审计员的例子"matches the Rust
+    implementation"换成"bit-for-bit equal to research"。
+- **改正的引用**（`git grep -n -F` 逐个文件名和路径查）：
+  - `Makefile` 的 `test-all` 说明：原来指向 `docs/known_test_failures.md`，现在写"CI runs it as 4 shards"。
+  - ADR 的背景行（只改引用，不改其他内容）：0001、0002、0005、0008（两处）、0013，原来引用 `current-state.md`、`doc-vs-code.md`、
+    `design-2026-11-m5.md`，现在写明是哪份记录，并注明"该文档已在 R9 删除，原文在 git 历史里"。
+  - `pytest.ini` 的 `known_defect` 标记说明、`tests/characterization/conftest.py`、`test_execution_boundaries.py`、`test_risk_gates.py`
+    的文档字符串、`docs/arch/evidence/` 下 4 个探针的用法注释：原来指向 `current-state.md`，现在写"2026-11-14 的诊断（R9 删除，在 git 历史里）"。
+  - `README.md` 指向 `roadmap.md` 的一行、`m5_checklist.md` 和 `target.md` 指向已删文档的行，随改写去掉。
+- **测试的改动**：没有改断言。`tests/unit/tooling/test_claude_guard.py::test_file_tools` 的一个参数（"`docs/arch/` 下的文件可以读"的例子）
+  只换了路径：原来 `({"file_path": "/root/quant_system/docs/arch/roadmap.md"}, False),`，现在
+  `({"file_path": "/root/quant_system/docs/arch/target.md"}, False),`。守卫只按路径判断，检查的内容不变。
+- 保留不动：`docs/adr/`（除上面的引用）、`research/protocols/`、`docs/btc_eth_strategy.md`、`research/datasets/btcusdt_2025/README.md`、
+  `scripts/dev/mutants/README.md`、`research/results/`、`research/lab/runs/`。`docs/arch/evidence/` 的 4 个探针保留（现在没有文档描述
+  它们，要不要删由技术负责人定）。
+- **发现的问题（不在 R9 的范围，没改）**：
+  - `tests/architecture/test_rules.py::test_domain_and_application_import_only_from_an_allow_list` 在 `r7d-paper-compare` 上就失败：
+    R7b（`76ff8033`）让 `trading/domain/strategy/base.py` 和 `spec.py` 引入了 `functools`，它不在允许清单里。叠加的 PR 不以 master 为基，
+    CI 没有跑。要在 R 链合并前处理（加进允许清单，或不用 `partial`），由 R8 决定。
+  - 本分支的基础不含 master 上的 #117 和 #124：`STRATEGY_LEVERAGE`、`STOP_PCT` 只在 master 的代码里。核对清单按 master 的代码写这两项
+    （R 链合并 master 之后才一致）。用 `git merge-tree` 试合并 master：`CLAUDE.md` 和运行手册自动合并，只有本日志冲突（R 链本来就冲突）。
+- **本地**【实际运行结果】：
+  - `ruff check --select E,W,F .`：All checks passed。
+  - `tests/architecture` 和 `tests/unit/tooling`：111 个通过，1 个失败（上面那条允许清单；在 `origin/r7d-paper-compare` 的导出上跑，
+    结果相同：111 个通过、同一个失败）。
+  - 提到改过的文档的测试文件，加上改了文档字符串的两个刻画测试文件（14 个文件）：360 个通过。
+  - `python3 scripts/ci_shard.py 1 4 >/dev/null`：退出码 0。
+  - 8 个删掉的文件名逐个 `git grep -n -F`：除本日志和计划文件的"文档排查"一节（R9 的依据，按名字列出要删的文件）外，没有结果。
 ## 从冠军卡生成规格草稿（2026-11-17，轻流程：工具）
 
 - **决定**：技术负责人 2026-11-17 的做法二（月度重选）：有变化时生成新规格的建议，前向跟踪 4 周后由技术负责人签名发布、标记通过。
