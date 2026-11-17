@@ -4505,3 +4505,6 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
 - **新增测试**：`tests/unit/data/test_binance_um_all.py` 加 3 个（含参数化 3 例）；`tests/unit/lab/test_um_monthly.py` 8 个。都先跑过、在改动前失败。
 - **本地**【实际运行结果】：两个测试文件、`tests/architecture` 通过；ruff、`lint-imports` 通过。
 - **还没做**：从冠军卡生成规格草稿的工具、冠军的每周前向查看、每月的定时任务（另起 PR）。
+- **CI 补（同日）**：`tests/unit/lab/test_lookahead.py` 要求每个 `lab/` 模块要么是特征模块、要么写明为什么不是；新模块 `lab.um_monthly` 没登记，
+  CI 的一个分片失败。加了一行说明（它没有自己的特征，跑的想法走评审员的最终检查）。本地只跑了相关测试文件，漏了这个全目录的检查；
+  以后新增 `lab/` 模块时连这个测试一起跑。
