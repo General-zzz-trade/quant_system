@@ -5155,3 +5155,28 @@ CLAUDE.md 的现状改为：资金费存储（#147，三轮审计）、主网 BT
     未核实；如果返回 -4142，止损管理器会反复补挂而不是平仓。是否也按击穿处理会改变风控行为，留给技术负责人决定，本次不改。
   - 本地限流（请求根本没发出）仍按 `error` 处理，比必要的保守（最多等宽限期）；没改。
   - 503 "Service Unavailable"、"Internal error" 和 -1001 文档说是失败，仍按未知处理（技术负责人 2026-11-17）。
+
+## 止损遇到 -4142 也按"已击穿"处理（2026-11-17，完整流程）
+
+- **决定**：技术负责人 2026-11-17 选择"按击穿处理"。
+- **依据**（币安错误码页，2026-11-17 抓取，已核实）：
+  - -4142 STRATEGY_INVALID_TRIGGER_PRICE："REJECT: take profit or stop order will be triggered immediately"；
+  - 它和 -2021 "Order would immediately trigger." 含义相同，都是价格已经越过触发价。
+  - 币安条件单接口（`POST /fapi/v1/algoOrder`）在这种情况下实际返回哪个码，**未核实**。
+- **改了什么**【代码】：
+  - `trading/adapters/binance/adapter.py`：`_IMMEDIATE_TRIGGER` 从 `-2021` 改为 `frozenset({-2021, -4142})`，
+    `place_stop_market` 的 `breached` 改为判断错误码是否在集合里。
+  - 运行时对 `breached` 的处理不变：报 `stop_breached`，平掉整个交易所持仓。
+  - 以前收到 -4142 时报 `STOP_MISSING`，下一轮又补挂止损，可能一直补挂下去，而不是平仓。
+- **已有测试的改动**：没有。
+- **新增测试**：
+  - `tests/unit/trading/test_order_error_classes.py`：击穿参数表加 (400, -4142, True)，共 1 个；
+  - `tests/characterization/test_execution_boundaries.py`：-2021 和 -4142 时止损管理器都报 `stop_breached`、
+    止损记录为 `breached`、没有挂出新止损，共 2 个。
+  - 改代码前 -4142 的两个失败：前者断言 `('rejected', False) == ('rejected', True)` 失败，后者报的是 "protective stop rejected"；
+    -2021 的通过。
+- **变异自检**：3 个变异体（去掉 -4142、去掉 -2021、击穿永远为假），第一轮 3/3 全部杀死。
+- **本地**【测试日志】：
+  - `test_order_error_classes.py`、`test_execution_boundaries.py`、`test_binance_adapter.py`、`test_exchange_ports.py`：231 个通过；
+  - `tests/architecture` 51 个通过；ruff 通过；`mypy trading/` 98 个文件无问题；`lint-imports` 5 条契约保持。
+- **残余**：如果 -4142 在其他场合（不是价格已越过触发价）出现，会多平一次仓，代价是一次往返的手续费。技术负责人接受这个取舍。

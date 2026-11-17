@@ -269,6 +269,26 @@ def test_a_stop_answered_with_an_unknown_outcome_is_looked_up_not_replaced(env, 
     assert sorted(_rows(executor)) == [(0, "inactive"), (1, "active")] and len(fake.algo) == 1
 
 
+@pytest.mark.parametrize("code", [-2021, -4142])
+def test_a_stop_refused_as_immediately_triggering_is_reported_breached(env, code):
+    """-4142 counts as breached like -2021 (tech lead 2026-11-17): the runtime flattens instead of replacing the stop
+    every cycle."""
+    from tests.support.binance_errors import rest_error
+    fake, _, executor, _, _, _ = env
+    stops = _stops(env)
+    original = fake.request_signed
+
+    def refused(*, method, path, params=None):
+        if path == "/fapi/v1/algoOrder" and method == "POST":
+            raise rest_error(400, code)
+        return original(method=method, path=path, params=params)
+
+    fake.request_signed = refused
+    issues = stops.sync()
+    assert len(issues) == 1 and issues[0].startswith("BTCUSDT: stop_breached (price already beyond ")
+    assert _rows(executor) == [(0, "breached")] and fake.algo == {}
+
+
 def test_a_stop_stuck_in_canceling_is_canceled_again_and_never_counts_as_the_stop(env):
     fake, _, executor, _, consumer, _ = env
     stops = _stops(env)
