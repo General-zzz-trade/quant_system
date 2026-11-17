@@ -105,10 +105,17 @@ class StrategyFunding:
         ``FUNDING_OVERLAP_MS`` before their span ends, and keep what was read. A span that ended more than Binance's
         three months ago cannot be continued: the read raises, and the total is unknown from then on."""
         assert self.store is not None
-        covered = self.store.coverage(symbol)
-        start = since_ms if covered is None or covered[0] > since_ms else max(since_ms, covered[1] - FUNDING_OVERLAP_MS)
+        start = self._start(self.store.coverage(symbol), since_ms)
         rows = self.venue.get_funding_rows(symbol, since_ms=start, now_ms=now_ms)
         self.store.add(symbol, rows, from_ms=start, through_ms=now_ms)
+
+    @staticmethod
+    def _start(covered: tuple[int, int] | None, since_ms: int) -> int:
+        """Where a symbol's next read starts: its first fill when the kept rows do not reach back to it, otherwise
+        ``FUNDING_OVERLAP_MS`` before they end (never before the first fill)."""
+        if covered is None or covered[0] > since_ms:
+            return since_ms
+        return max(since_ms, covered[1] - FUNDING_OVERLAP_MS)
 
     def _stored(self) -> Decimal:
         """The kept total since each symbol's first fill; raises when a symbol's kept rows do not reach back to it.
@@ -127,16 +134,20 @@ class StrategyFunding:
         return total
 
     def _continuable(self) -> None:
-        """Raise when a traded symbol's kept rows end more than Binance's history ago: what was paid after them can
-        never be read, so no total is whole (audit of PR #147, finding 1: unknown, never a partial total)."""
+        """Raise when a traded symbol's next read would start more than Binance's history ago: what was paid after
+        its kept rows can never be read, so no total is whole (audit of PR #147, finding 1: unknown, never a partial
+        total; its re-audit, item 1: the read starts 24 h before the kept rows end, so this is checked at the read's
+        start, not at their end)."""
         assert self.store is not None
         oldest = int(self.clock() * 1000) - FUNDING_HISTORY_MS
         for symbol in self.symbols():
-            if self.first_fill(symbol) is None:
+            since = self.first_fill(symbol)
+            if since is None:
                 continue
             covered = self.store.coverage(symbol)
-            if covered is not None and covered[1] < oldest:
-                raise RuntimeError(f"strategy funding unknown: {symbol}'s kept rows end more than 88 days ago")
+            if covered is not None and self._start(covered, int(since * 1000)) < oldest:
+                raise RuntimeError(f"strategy funding unknown: {symbol}'s next read would start more than 88 days "
+                                   "ago, beyond Binance's history")
 
     def current(self) -> Decimal:
         """The funding total; raises when it is older than two hours or was never read (the base sizes to zero)."""

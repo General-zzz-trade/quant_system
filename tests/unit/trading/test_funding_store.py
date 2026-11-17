@@ -173,6 +173,65 @@ def test_a_gap_longer_than_binance_s_history_is_unknown_to_the_base_and_to_the_l
     assert store.coverage("BTCUSDT")[1] == 1_000_600_000            # no coverage across the gap
 
 
+def _down_for(tmp_path, days, ran=5 * 86_400):
+    """The runtime ran ``ran`` seconds (5 days), was down ``days`` days, and -299 was paid meanwhile: (the process
+    that ran on, the restarted one). After 5 days its next read starts 24 h before the kept rows end, 4 days after the
+    first fill; after 10 minutes, at the first fill."""
+    clock = Clock(1_000_000.0)
+    venue = Venue({"BTCUSDT": [("a", 1_000_100_000, D("-3"))]})
+    funding, _ = _funding(tmp_path, venue, {"BTCUSDT": 1_000_000.0}, clock)
+    clock.now += 600
+    assert funding.current() == D("-3")
+    clock.now += ran - 600
+    assert funding.current() == D("-3")
+    clock.now += days * 86_400
+    venue.rows["BTCUSDT"].append(("gap", int(clock.now * 1000) - 50 * DAY_MS, D("-299")))
+    again, _ = _funding(tmp_path, venue, {"BTCUSDT": 1_000_000.0}, clock)
+    return funding, again
+
+
+def test_a_gap_the_24_hour_overlap_cannot_reach_back_across_is_unknown(tmp_path):
+    """Re-audit of PR #147, item 1: kept rows that end less than 88 days ago, but whose next read would start more
+    than 88 days back (24 h before they end), can never be continued: unknown, not the partial total (-3)."""
+    funding, again = _down_for(tmp_path, 87.5)
+    with pytest.raises(RuntimeError, match="funding"):
+        again.current()
+    with pytest.raises(RuntimeError, match="88 days"):
+        again.last_known()
+    with pytest.raises(RuntimeError, match="88 days"):
+        funding.last_known()
+
+
+def test_a_gap_the_overlap_still_reaches_back_across_is_read_whole(tmp_path):
+    funding, again = _down_for(tmp_path, 86.9)
+    assert again.last_known() == D("-302") and again.current() == D("-302")
+    assert funding.last_known() == D("-302")
+
+
+def test_a_read_that_starts_at_the_first_fill_within_88_days_is_read_whole(tmp_path):
+    """The overlap never reaches before the first fill: rows kept 10 minutes after it, 87.5 days down, are read from
+    the first fill (inside Binance's history), whole."""
+    funding, again = _down_for(tmp_path, 87.5, ran=600)
+    assert again.last_known() == D("-302") and again.current() == D("-302")
+
+
+def test_months_of_running_keep_the_loss_stop_s_total_known(tmp_path):
+    """Re-audit of PR #147, item 2 (mutant X1): past 88 days of running, the loss stop's total stays known and whole,
+    in the running process and after a restart, not only the base's."""
+    clock = Clock(1_000_000.0)
+    rows = [(str(k), 1_000_000_000 + k * 8 * HOUR_MS, D("-0.1")) for k in range(1, 400)]
+    venue = Venue({"BTCUSDT": rows})
+    funding, _ = _funding(tmp_path, venue, {"BTCUSDT": 1_000_000.0}, clock)
+    while clock.now * 1000 - 1_000_000_000 < 120 * DAY_MS:        # a refresh every 7 hours for 120 days
+        clock.now += 7 * 3600
+        funding.current()
+    whole = sum((r[2] for r in rows if r[1] <= clock.now * 1000), D(0))
+    assert funding.last_known() == whole
+    venue.down = True
+    again, _ = _funding(tmp_path, venue, {"BTCUSDT": 1_000_000.0}, clock)   # restarted while the venue is down
+    assert again.last_known() == whole
+
+
 def test_a_restart_within_binance_s_history_reads_the_rest(tmp_path):
     clock = Clock(1_000_000.0)
     venue = Venue({"BTCUSDT": [("a", 1_000_100_000, D("-3"))]})
