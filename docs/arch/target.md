@@ -74,7 +74,7 @@ trading/
 - `.importlinter` 的 5 条契约（`lint-imports`）：分层只能向内；`trading` 不 import 遗留包、`lab`、`tests`；`domain` 和 `application`
   不 import 做 I/O 或读时钟的模块；`domain` 不 import `logging`、`sys`；适配器之间互不依赖。契约以文件为准。
 - import-linter 查不了的用测试补（`tests/architecture/`）：`test_rules.py`（`domain`、`application` 里不经 import 的 I/O；只有
-  组装层读环境变量；SQLite 只在 SQLite 适配器里；3 倍上限只定义一次；资金路径测试都在 CI 里）、`test_config_rules.py`、
+  组装层读环境变量；SQLite 只在 SQLite 适配器里；杠杆硬上限只定义一次；资金路径测试都在 CI 里）、`test_config_rules.py`、
   `test_issue_rules.py`（应用层不在问题文字里找字）、`test_event_kind_rules.py`、`test_artifact_loading.py`（规格只经签名加载）、
   `test_paper_path.py`、`test_research_fills.py`、`test_shared_parameters.py`、`test_no_ai_sdk.py`。
 
@@ -226,7 +226,7 @@ trading/
 
 | 不变量 | 测试 |
 |---|---|
-| 3 倍敞口上限只定义一次，只在入场时检查 | `tests/architecture/test_rules.py`、`tests/unit/trading/test_domain_risk.py` |
+| 杠杆硬上限（`MAX_TOTAL_LEVERAGE`，2026-11-17 起 10 倍，原 3 倍）只定义一次；账户敞口上限默认 3 倍，只在入场时检查 | `tests/architecture/test_rules.py`、`tests/unit/trading/test_domain_risk.py` |
 | 每张入场单都经过入场门；执行模式入场门的组件缺一不可 | `tests/characterization/test_runtime_decisions.py`、`test_domain_risk.py` |
 | 权益、价格、持仓或状态库未知时不入场，仓位按 0 算 | `tests/unit/trading/test_unknown_equity.py`、`test_lost_state_files.py` |
 | 回撤闩锁和当日计数跨重启保持；检查通过之前不写账户 | `tests/characterization/test_risk_state.py` |
