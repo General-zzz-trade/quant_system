@@ -95,7 +95,7 @@
   - 2025-11-16..2026-11-12 has been viewed several times and must not be used for any selection.
   - The next final test is forward data after 2026-11-13.
 - **Venue:** Binance USDT-margined perpetuals, **BTCUSDT and ETHUSDT only** again since 2026-11-17 (owner: "目前如何去改成做
-  BTC和ETH，不再全市场这样做"; the whole-market scope of 2026-11-16 is reverted; the lab follows in a separate step;
+  BTC和ETH，不再全市场这样做"; the whole-market scope of 2026-11-16 is reverted, in the lab too (`lab.LIVE_BTC_ETH`);
   delivery and USDC-margined contracts are not used). Mainnet refuses to start with a spec listing any other symbol (`MAINNET_SYMBOLS` in `trading/domain/strategy/spec.py`,
   checked at the start check and where the runtime is composed; `account_check --pilot` names it); the testnet and
   paper still take any USDT perpetual a signed spec lists, at most 10, with the strategy it names (R1–R7). The only
@@ -120,13 +120,13 @@
   - 2026-11-17 (`research/lab/runs/2026-11-17/`): the run on the 2020+ snapshot named E3 (above). Across the years
     what helps most is how a position is re-entered after a stop, not the stop's distance: waiting for the signal
     to reset beats the 4-hour pause for 8 of the top 10 ideas (`stop_stability.json`, `pause_then_reset_results.md`).
-  - The next round, registered before any result (`research/lab/runs/2026-11-17b/plan.md`, owner 2026-11-17):
-    lists of contracts listed at least a year, Binance's TradFi contracts excluded; only the 6 stop rules the runtime
-    can run; an idea must beat holding BTC and holding BTC with position control, with a deflated Sharpe probability
-    of at least 0.5 over every configuration tried on the snapshot; and a portfolio chosen fold by fold
-    (`lab/um_portfolio.py`). A volatility-tightened stop (`vol_stop.md`) runs beside it.
+  - The whole-market rounds 2026-11-17b (`runs/2026-11-17b/plan.md`) and the volatility-tightened stop (`vol_stop.md`)
+    were stopped unviewed when the owner moved to BTC/ETH (`terminated.md`, `vol_stop_terminated.md`); their replays
+    stay registered in `trials.jsonl` and count in later deflated Sharpe probabilities. Their tools stay
+    (`lab/um_portfolio.py`, the higher elimination line).
+  - From 2026-11-17 the nightly crew and the monthly re-selection test BTCUSDT and ETHUSDT only, at `lab.LIVE_BTC_ETH`.
   - Monthly re-selection on new data (owner 2026-11-17): a scheduled task on the 8th of each month, 13:23
-    Asia/Shanghai (`lab/um_monthly.py`); a champion's spec is drafted with `scripts.draft_strategy_spec` (always
+    Asia/Shanghai (`lab/um_monthly.py`, BTC/ETH since 2026-11-17); a champion's spec is drafted with `scripts.draft_strategy_spec` (always
     `passed: false`) and tracked 4 weeks before a person publishes it.
 - **Defaults:** paper/dry-run; Binance testnet; CI never deploys; deploy is manual.
 
