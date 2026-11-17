@@ -5,13 +5,15 @@
 
 ## 冻结的内容
 
-- 文件：`research/lab/runs/2026-11-17/forward_e3.json`，SHA-256 `cd0db338db3ddaed59ee6e9d8faeff2a681ee035bbfd29686295a699c62f387a`。
+- 文件：`research/lab/runs/2026-11-17/forward_e3.json`，SHA-256 `807c61fe42794e39a2ddc3458739af5b97faad34e1c8e3b0c82aa5ca07022663`。
 - 包括：
   - 规格草稿：策略 `E3_vol_target_trend`，参数 `target=0.02`，只做多，10 个品种 ETH、SOL、XAU、CL、XAG、XRP、DOGE、ZEC、HYPE、
     1000PEPE。
   - 止损：8%，止损后等信号回到 0 再开仓，即评审选的方案。
   - 资金 300 USDT，10 份；成本照实验室（`lab.um_lab.replay`）。
 - 之后不改；改了就是另一个想法，要重新跟踪。
+- 同日更正（2026-11-17，跟踪开始之前、任何前向数据之前）：冻结文件按登记表的规定在顶层加了 `"passed": false` 和
+  `"registered": true`，内容不变，哈希从 `cd0db338…` 改为上面这个；4 次查看的登记一起改。
 
 ## 时间和数据
 
