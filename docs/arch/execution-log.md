@@ -4429,6 +4429,15 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
 - 新增测试：`tests/unit/tooling/test_account_settings.py`（6 个），用临时文件，断言密钥值从不出现在输出里、没有发出任何请求。
   已有测试的改动：没有。本地：`tests/unit/tooling` 全部通过；ruff、导入契约通过。
 
+## 试运行成交对照回测假设的报告 `scripts/live_fills.py`（2026-11-16 晚，工具，轻流程）
+
+- 用途（技术负责人 2026-11-16：试运行是为了用真实成交校准回测）：把执行状态库里程序发出、交易所成交的每一笔订单，和账户自己的成交记录
+  （`python3 -m scripts.account_check --history <目录>` 的只读导出）、决策那根 K 线之后的开盘价对起来，按订单类型报告真实成本：
+  调仓单对照"下一根开盘价、差 3 个基点"，交易所止损对照"触发价、差 10 个基点"，手续费对照 5 个基点；还有从决策到成交的时间。
+- 状态库只读打开；交易所里找不到成交的订单列为缺失，不猜。开盘价取币安公开 K 线，不用账户。只报成交和成本，不报收益。
+- 放在 `scripts/` 而不是 `lab/`：它是运营报告，不是研究代码（`lab/` 的规则禁止按成本名做乘法，这里只是计量已经扣过的手续费）。
+- 新增测试：`tests/unit/tooling/test_live_fills.py`（7 个），用合成的状态库和成交记录。已有测试的改动：没有。
+  本地：`tests/unit/tooling`、架构测试通过；ruff、导入契约通过。
 ## 清理过时文档（2026-11-16 深夜，轻流程；计划 R9 的前一半）
 
 - 依据：技术负责人"计划完成后就删除过时的文档，先排查"，以及随后的"清理项目过时文档"。排查结果在计划的"文档排查"一节（PR #118）。
@@ -4508,3 +4517,9 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
 - **CI 补（同日）**：`tests/unit/lab/test_lookahead.py` 要求每个 `lab/` 模块要么是特征模块、要么写明为什么不是；新模块 `lab.um_monthly` 没登记，
   CI 的一个分片失败。加了一行说明（它没有自己的特征，跑的想法走评审员的最终检查）。本地只跑了相关测试文件，漏了这个全目录的检查；
   以后新增 `lab/` 模块时连这个测试一起跑。
+## 测试辅助：下载器测试的假归档用固定时间戳（2026-11-17，轻流程）
+
+- #132 合并 master 后 CI 的一个分片失败：`test_binance_archive.py::test_the_same_inputs_give_byte_identical_files` 报 checksum mismatch，本地连跑 4 次都通过。
+- 原因【实际运行结果】：假归档每次请求都重新打包 zip（先算校验和，再给文件），`writestr("data.csv", ...)` 写进当前时间；两次之间跨过一秒，字节就不同。
+  本地复现：旧写法隔 2 秒打包两次字节不同，新写法相同。
+- 改动（测试辅助，断言不变）：`_zip` 用固定时间 2022-01-01 00:00:00 的 `ZipInfo`。
