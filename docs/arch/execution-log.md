@@ -4503,7 +4503,7 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   - `StopVariant(vol_k=...)`：名字 `vol{k}x_cap{上限}_{止损后}`；固定止损的名字、标签、回放参数和以前一样（今晚的缓存照用）。
   - 登记：`research/lab/runs/2026-11-17/vol_stop.md`（14 种新方案、"有用"的判定标准），在任何结果之前提交。
 - **已有测试的改动**：没有。
-- **新增测试**：`tests/unit/trading/test_broker_position_stop.py` 14 个（含参数化），`tests/unit/lab/test_vol_stop.py` 22 个（含参数化）。都先跑过、在改动前失败。
+- **新增测试**：`tests/unit/trading/test_broker_position_stop.py` 15 个（含参数化），`tests/unit/lab/test_vol_stop.py` 19 个（含参数化）。都先跑过、在改动前失败。
 - **变异自检**【实际运行结果】：`scripts/dev/mutants/vol_stop.json` 21 个。第一轮 20 个被杀；存活 1 个："`replay` 里距离晚一个小时"，
   因为没有测试经过 `replay` 的对齐。补了 `test_replay_gives_each_decision_the_distance_known_at_its_close`，单独重跑这个变异被杀。最终 21/21。
 - **本地**【实际运行结果】：两个新测试文件和经纪商、模拟、评审员、模拟盘逐根对照的相关测试通过；`tests/architecture` 通过（一个变量原来叫
