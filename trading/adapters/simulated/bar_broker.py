@@ -20,8 +20,9 @@ Optional stop at a fixed distance (``stop_pct`` > 0, off by default; tech lead 2
 runtime's exchange stop, a STOP_MARKET closePosition at the position's entry price x (1 - stop_pct) for a long, x (1
 + stop_pct) for a short (trading/application/execution/stops.py). Market entries fill at the open, so the stop
 guards the rest of that bar and every later one, at the current average entry; it fills by the isolated-mode stop
-rule above (and paper's BarStopModel). Market entries only: a maker fill lands at the close, after the bar's range.
-In isolated mode it replaces ``set_stop`` (the pilot runs 10x isolated with a 4.5 % stop, 2026-11-16) and must lie
+rule above (and paper's BarStopModel). A maker entry fills at its limit inside the bar; the stop then checks that
+whole bar too, as if its extreme came after the fill (the adverse order, research only: owner 2026-11-17, the cost
+lever; paper's simulated exchange refuses a broker with a stop and places its own). In isolated mode it replaces ``set_stop`` (the pilot runs 10x isolated with a 4.5 % stop, 2026-11-16) and must lie
 inside the liquidation distance; liquidation is still modelled first.
 
 Research only, a per-position distance (``set_next_stop_pct``; tech lead 2026-11-17, the lab's stop that tightens with
@@ -126,8 +127,6 @@ class ReplayConfig:
             raise ValueError("stop_pct must be in [0, 1)")
         if stop_pct > 0 and leverage > 0 and stop_pct >= 1 / leverage - mmr:
             raise ValueError("stop_pct must be inside the isolated liquidation distance")
-        if stop_pct > 0 and self.entry_mode != "market":
-            raise ValueError("stop_pct needs market entries (a maker fill lands after the bar's range)")
         if any(D(getattr(self, k)) >= 10000 for k in ("maker_bps", "taker_bps", "slippage_bps", "limit_offset_bps")):
             raise ValueError("cost/offset bps must be below 10000")
         if self.entry_mode not in ("maker", "market"):
