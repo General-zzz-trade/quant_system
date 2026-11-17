@@ -4490,3 +4490,10 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
 - 同一轮 CI 里 R2 的 `test_spec_v2_runtime.py::test_the_same_strategy_in_either_schema_trades_the_same` 失败了一次（ETH 数量 2.254 对 2.255）：
   执行模式每秒下单限制用真实时钟，两次运行里 ETH 的入场是否被推迟取决于机器快慢（与 R3 运行时测试的问题相同）。把这个测试的限制时钟
   也固定为测试世界的时钟（测试辅助的改动，断言不变）。
+
+## 测试辅助：下载器测试的假归档用固定时间戳（2026-11-17，轻流程）
+
+- #132 合并 master 后 CI 的一个分片失败：`test_binance_archive.py::test_the_same_inputs_give_byte_identical_files` 报 checksum mismatch，本地连跑 4 次都通过。
+- 原因【实际运行结果】：假归档每次请求都重新打包 zip（先算校验和，再给文件），`writestr("data.csv", ...)` 写进当前时间；两次之间跨过一秒，字节就不同。
+  本地复现：旧写法隔 2 秒打包两次字节不同，新写法相同。
+- 改动（测试辅助，断言不变）：`_zip` 用固定时间 2022-01-01 00:00:00 的 `ZipInfo`。
