@@ -11,7 +11,7 @@ import sqlite3
 from pathlib import Path
 
 STATE_DB = "state.sqlite"
-VERSION = 1
+VERSION = 2          # 2 (tech lead 2026-11-17): the strategy's funding rows and how far each symbol's are known
 
 # The columns are exactly those the stores used before ADR-0009 (the order table with all its added columns).
 TABLES: dict[str, str] = {
@@ -49,6 +49,14 @@ TABLES: dict[str, str] = {
         released_at REAL, release_reason TEXT)""",
     "pause_triggers": """CREATE TABLE pause_triggers (
         symbol TEXT NOT NULL, trigger TEXT NOT NULL, PRIMARY KEY(symbol, trigger))""",
+    # Version 2: every funding row read from the venue (by its transaction id) and, per symbol, the span its rows are
+    # known whole for (lab/README and CLAUDE.md: Binance keeps the income history for three months only).
+    "funding_rows": """CREATE TABLE funding_rows (
+        scope TEXT NOT NULL, symbol TEXT NOT NULL, tran_id TEXT NOT NULL, time_ms INTEGER NOT NULL,
+        amount TEXT NOT NULL, PRIMARY KEY(scope, tran_id))""",
+    "funding_coverage": """CREATE TABLE funding_coverage (
+        scope TEXT NOT NULL, symbol TEXT NOT NULL, from_ms INTEGER NOT NULL, through_ms INTEGER NOT NULL,
+        PRIMARY KEY(scope, symbol))""",
 }
 # A paper directory's database also holds the paper state, written with the order journal (S10 decision 4). Not part
 # of the execution check below: an execution directory has no paper state.
@@ -94,10 +102,47 @@ def problems(path: Path) -> list[str]:
         return [f"{name} is unreadable"]
     found = [] if check == ["ok"] else [f"{name} is corrupt ({'; '.join(check)})"]
     if version != VERSION:
-        found.append(f"{name} has version {version}, expected {VERSION}")
-    if missing := [t for t in TABLES if t not in tables]:
+        hint = "; migrate it with the runtime stopped: python -m trading.infrastructure.state_dir --state-dir " \
+            "<dir> migrate" if version in MIGRATIONS else ""
+        found.append(f"{name} has version {version}, expected {VERSION}{hint}")
+    later = {t for v in range(version, VERSION) for t in MIGRATIONS.get(v, ())}   # not yet in an older version
+    if missing := [t for t in TABLES if t not in tables and t not in later]:
         found.append(f"{name} has lost its tables ({', '.join(missing)}); it was emptied or replaced")
     return found
+
+
+def version(path: Path) -> int:
+    """The database's version number; read-only."""
+    db = sqlite3.connect(f"{Path(path).resolve().as_uri()}?mode=ro", uri=True)
+    try:
+        return int(db.execute("PRAGMA user_version").fetchone()[0])
+    finally:
+        db.close()
+
+
+# The tables each migration adds, by the version it starts from (ADR-0009 5: a person runs it, the runtime stopped).
+MIGRATIONS: dict[int, tuple[str, ...]] = {1: ("funding_rows", "funding_coverage")}
+
+
+def migrate(path: Path) -> int:
+    """Bring the database at ``path`` to ``VERSION`` by adding the tables of each step, in one transaction; returns
+    the version it had. Nothing else changes. A version without a migration is refused."""
+    db = sqlite3.connect(Path(path))
+    try:
+        had = int(db.execute("PRAGMA user_version").fetchone()[0])
+        if had == VERSION:
+            return had
+        steps = list(range(had, VERSION))
+        if not steps or not all(step in MIGRATIONS for step in steps):
+            raise ValueError(f"{Path(path).name} has version {had}; there is no migration from it to {VERSION}")
+        with db:
+            for step in steps:
+                for table in MIGRATIONS[step]:
+                    db.execute(TABLES[table])
+            db.execute(f"PRAGMA user_version={VERSION}")
+        return had
+    finally:
+        db.close()
 
 
 def holds_paper_state(path: Path) -> bool:
@@ -114,4 +159,5 @@ def holds_paper_state(path: Path) -> bool:
         return False
 
 
-__all__ = ["PAPER_TABLES", "STATE_DB", "TABLES", "VERSION", "create", "holds_paper_state", "problems"]
+__all__ = ["MIGRATIONS", "PAPER_TABLES", "STATE_DB", "TABLES", "VERSION", "create", "holds_paper_state",
+           "migrate", "problems", "version"]

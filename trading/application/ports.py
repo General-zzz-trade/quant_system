@@ -137,6 +137,20 @@ class FundingIncome(Protocol):
 
     def get_funding_income(self, symbol: str, *, since_ms: int, now_ms: int) -> Decimal: ...
 
+    def get_funding_rows(self, symbol: str, *, since_ms: int,
+                         now_ms: int) -> list[tuple[str, int, Decimal]]: ...   # (transaction id, time ms, amount)
+
+
+class FundingStore(Protocol):
+    """The strategy's funding rows kept in the state database and the span each symbol's are known whole for
+    (version 2, tech lead 2026-11-17). Reads that fail raise."""
+
+    def coverage(self, symbol: str) -> tuple[int, int] | None: ...
+
+    def add(self, symbol: str, rows: Iterable[tuple[str, int, Decimal]], *, from_ms: int, through_ms: int) -> None: ...
+
+    def total(self, symbol: str, *, since_ms: int) -> Decimal: ...
+
 
 @runtime_checkable
 class OrderGateway(Protocol):
@@ -409,7 +423,7 @@ class Notifier(Protocol):
 
 __all__ = ["Clock", "Sleeper", "Lock", "PaperStore", "StatusSink",
            "MarketData", "ExchangeAccount", "FundingIncome", "OrderGateway", "StopOrderGateway", "BarListener",
-           "PaperVenue", "GateClock",
+           "PaperVenue", "GateClock", "FundingStore",
            "OrderJournal", "KillSwitch", "KillLatch", "DrawdownGuard", "OrderLimits", "OrderRequest",
            "EntryReservation", "WalletCheck", "ExposureReader", "EventLog", "Notifier", "AccountOrderView",
            "AccountStopView", "AccountSnapshot"]
