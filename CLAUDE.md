@@ -123,6 +123,13 @@
 - **Research scope (owner 2026-11-17, evening):** "我要求不只做BTC和ETH，全市场的永续合约USDT都可以做": research may use every
   USDT perpetual (the whole-market panel study). The mainnet limit below stays until a strategy passes and the owner
   approves the runtime change (dynamic universe; specs list at most 10 symbols today).
+  - The panel study (`research/results/panel_2026-11-17/`, development window): one model pooled over the 100 most
+    traded crypto perps of each day predicts a trend coming within 14 days (AUC 0.69) and 7-day volatility, not
+    direction. Its models are frozen (`forward_spec.json`) and judged at 6 monthly looks, 2027-01-01 to 2027-06-01
+    (decision 2027-06-01; `research/protocols/2026-11-17-panel-forward.md`); the look runner is still to be written.
+    A model that holds is only a component: no strategy uses it yet.
+  - The volatility-expansion breakout study (panel filter, predicted-volatility sizing) is pre-registered
+    (`research/results/vol_breakout_2026-11-17/README.md`) and waits for the owner's confirmation before any code.
 - **Venue:** Binance USDT-margined perpetuals, **BTCUSDT and ETHUSDT only** again since 2026-11-17 (owner: "目前如何去改成做
   BTC和ETH，不再全市场这样做"; the whole-market scope of 2026-11-16 is reverted, in the lab too (`lab.LIVE_BTC_ETH`);
   delivery and USDC-margined contracts are not used). Mainnet refuses to start with a spec listing any other symbol (`MAINNET_SYMBOLS` in `trading/domain/strategy/spec.py`,
