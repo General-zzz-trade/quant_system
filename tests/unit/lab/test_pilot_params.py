@@ -118,3 +118,34 @@ def test_after_a_stop_the_runtime_s_rule_decides_the_next_entry(after, first_ent
     # ends the wait, the 0.5 decided at bar 26's close enters
     assert again[0] == first_entry_after_stop * HOUR
     assert counts["BTCUSDT"]["stops"] == 1 and counts["ETHUSDT"]["stops"] == 0
+
+
+# -- scope B: the overlay's signal settings (owner 2026-11-17: "按这个计划做") ----------------------------------------
+def test_the_signal_grid_has_seventy_two_settings_and_the_frozen_spec_is_one():
+    from lab.overlay_study import SPEC
+    assert len(pp.SIGNAL_GRID) == 72 and len({s.key for s in pp.SIGNAL_GRID}) == 72
+    assert pp.FROZEN in pp.SIGNAL_GRID and pp.FROZEN.spec(SPEC) == SPEC
+    changed = pp.SignalSetting((20, 60, 120), 0.45, 0.2, "scaled").spec(SPEC)
+    assert (changed.lookbacks, changed.target_vol, changed.band, changed.signal) == ((20, 60, 120), 0.45, 0.2, "scaled")
+    assert (changed.long_only, changed.max_weight, changed.vol_lookback) == (SPEC.long_only, SPEC.max_weight,
+                                                                             SPEC.vol_lookback)
+
+
+def test_a_signal_setting_s_neighbours_are_every_other_lookback_set_and_one_step_in_the_rest():
+    found = {n.key for n in pp.signal_neighbours(pp.FROZEN)}
+    assert len(found) == 8
+    assert {s.lookbacks for s in pp.signal_neighbours(pp.FROZEN)} == set(pp.LOOKBACK_SETS)
+    assert pp.SignalSetting(pp.FROZEN.lookbacks, 0.2, 0.1, "sign").key in found
+    assert pp.SignalSetting(pp.FROZEN.lookbacks, 0.3, 0.2, "sign").key in found
+    assert pp.SignalSetting(pp.FROZEN.lookbacks, 0.3, 0.1, "scaled").key in found
+
+
+def test_the_walk_forward_takes_the_signal_grid_and_falls_back_to_the_frozen_spec():
+    dailies = {s.key: _daily({2021: 0.0, 2022: 0.0}) for s in pp.SIGNAL_GRID}
+    out = pp.walk_forward(dailies, (2021, 2022), pp.SIGNAL_GRID, neighbours_of=pp.signal_neighbours,
+                          fallback=pp.FROZEN)
+    assert out["choices"][2022] in {s.key for s in pp.SIGNAL_GRID}
+    risky = {s.key: _daily({2021: -0.01, 2022: 0.0}) for s in pp.SIGNAL_GRID}            # every one beyond the limits
+    out = pp.walk_forward(risky, (2021, 2022), pp.SIGNAL_GRID, neighbours_of=pp.signal_neighbours,
+                          fallback=pp.FROZEN)
+    assert out["choices"][2022] == pp.FROZEN.key

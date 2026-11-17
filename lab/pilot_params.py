@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import math
 import statistics
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, replace
 from decimal import Decimal as D
 from typing import Any
 
@@ -77,17 +77,20 @@ def stats(daily: pd.Series) -> dict:
             "loss_stop_share": loss_stop_share(daily, 0.15, 90)}
 
 
-def plateau_choice(found: Mapping[str, dict], grid: Sequence[Setting] = GRID, *, max_drawdown: float = MAX_DRAWDOWN,
-                   max_loss_stop_share: float = MAX_LOSS_STOP_SHARE) -> Setting | None:
+def plateau_choice(found: Mapping[str, dict], grid: Sequence[Any] = GRID, *, max_drawdown: float = MAX_DRAWDOWN,
+                   max_loss_stop_share: float = MAX_LOSS_STOP_SHARE,
+                   neighbours_of: Callable[[Any], list] | None = None) -> Any:
     """The setting within the limits whose own Sharpe and its neighbours' have the highest median (the first in grid
-    order on a tie); None when no setting is within the limits."""
+    order on a tie); None when no setting is within the limits. ``neighbours_of``: ``neighbours`` (the risk
+    settings) unless given (``signal_neighbours`` for the signal settings)."""
+    neighbours_of = neighbours_of or neighbours
     within = [s for s in grid if found[s.key]["max_drawdown"] <= max_drawdown
               and (found[s.key]["loss_stop_share"] or 0.0) <= max_loss_stop_share]
     if not within:
         return None
 
-    def score(s: Setting) -> float:
-        return statistics.median(found[x.key]["sharpe"] for x in [s, *neighbours(s)])
+    def score(s: Any) -> float:
+        return statistics.median(found[x.key]["sharpe"] for x in [s, *neighbours_of(s)])
     return max(within, key=score)
 
 
@@ -95,20 +98,61 @@ def _year(days: pd.Index) -> np.ndarray:
     return pd.to_datetime(np.asarray(days, dtype=np.int64) * DAY, unit="ms").year.to_numpy()
 
 
-def walk_forward(dailies: Mapping[str, pd.Series], years: Sequence[int], grid: Sequence[Setting] = GRID) -> dict:
-    """Each year after the first runs the setting ``plateau_choice`` picks from the years before it (the pilot's
-    settings today when none is within the limits); the stitched daily returns and the choices."""
+def walk_forward(dailies: Mapping[str, pd.Series], years: Sequence[int], grid: Sequence[Any] = GRID, *,
+                 neighbours_of: Callable[[Any], list] | None = None, fallback: Any = None) -> dict:
+    """Each year after the first runs the setting ``plateau_choice`` picks from the years before it (``fallback``,
+    by default the pilot's settings today, when none is within the limits); the stitched daily returns and the
+    choices."""
+    fallback = BASELINE if fallback is None else fallback
     parts, choices = [], {}
     for k, year in enumerate(years[1:], start=1):
         found = {}
         for s in grid:
             d = dailies[s.key]
             found[s.key] = stats(d[np.isin(_year(d.index), list(years[:k]))])
-        chosen = plateau_choice(found, grid) or BASELINE
+        chosen = plateau_choice(found, grid, neighbours_of=neighbours_of) or fallback
         choices[year] = chosen.key
         d = dailies[chosen.key]
         parts.append(d[_year(d.index) == year])
     return {"daily": pd.concat(parts), "choices": choices}
+
+
+# -- scope B: the overlay's signal settings (owner 2026-11-17, "按这个计划做") -------------------------------------
+LOOKBACK_SETS = ((10, 20, 30, 60, 90, 120, 180), (20, 60, 120), (30, 90, 180), (10, 20, 30, 60))
+TARGET_VOLS = (0.20, 0.30, 0.45)
+BANDS = (0.05, 0.10, 0.20)
+SIGNALS = ("sign", "scaled")
+
+
+@dataclass(frozen=True)
+class SignalSetting:
+    """The overlay's signal settings that the scope-B study varies; everything else stays the frozen spec's."""
+    lookbacks: tuple[int, ...]
+    target_vol: float
+    band: float
+    signal: str
+
+    @property
+    def key(self) -> str:
+        return f"lb{'-'.join(map(str, self.lookbacks))} tv{self.target_vol:g} band{self.band:g} {self.signal}"
+
+    def spec(self, base: Any) -> Any:
+        return replace(base, lookbacks=self.lookbacks, target_vol=self.target_vol, band=self.band, signal=self.signal)
+
+
+SIGNAL_GRID = [SignalSetting(lb, tv, b, sg) for lb in LOOKBACK_SETS for tv in TARGET_VOLS for b in BANDS
+               for sg in SIGNALS]
+FROZEN = SignalSetting(LOOKBACK_SETS[0], 0.30, 0.10, "sign")   # lab.overlay_study.SPEC, the pilot's spec
+
+
+def signal_neighbours(setting: SignalSetting) -> list[SignalSetting]:
+    """Every other lookback set (they have no order), one step in the target volatility and the band, the other
+    signal form."""
+    out = [replace(setting, lookbacks=lb) for lb in LOOKBACK_SETS if lb != setting.lookbacks]
+    for values, name in ((TARGET_VOLS, "target_vol"), (BANDS, "band")):
+        k = values.index(getattr(setting, name))
+        out += [replace(setting, **{name: values[j]}) for j in (k - 1, k + 1) if 0 <= j < len(values)]
+    return out + [replace(setting, signal=next(x for x in SIGNALS if x != setting.signal))]
 
 
 def _config(rules: SymbolRules, setting: Setting, capital: float, cost: int, ttl_bars: int) -> ReplayConfig:
