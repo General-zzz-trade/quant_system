@@ -5287,3 +5287,20 @@ CLAUDE.md 的现状改为：资金费存储（#147，三轮审计）、主网 BT
 - **运行中发现的缺陷**：`lowvol_ls` 把缺失收盘价向前填充，已下架的 LUNA 在 2022-05-13 那段被当成最平稳一直做多。
   - 已修正（`pct_change(fill_method=None)`），新增 1 个测试，修正前失败。
   - X3 重跑后夏普从 −0.803 变成 −0.837，判定不变。第一次的结果保留在提交 2ae4e854。
+
+## 研究券商放开到 10 倍，仓位 2 到 10 倍的后果回测（2026-11-17，轻流程：研究）
+
+- **起因**：业主 2026-11-17 "改为资金的10倍，我要上调"，选了"10 倍，止损线一起重定"，又说"按计划进行直到全部完成"。
+  计划分两段：先做研究（A），再改运行时（B）；B 要等业主按研究结果定下数字。
+- **改了什么**【代码】：`trading/adapters/simulated/bar_broker.py` 的逐仓模式，敞口上限从运行时的 `MAX_TOTAL_LEVERAGE`（3）
+  改成研究专用的 `RESEARCH_MAX_EXPOSURE`（10），并且仍不超过逐仓杠杆。运行时的上限没动；纸面模式从不用逐仓。
+- **已有测试的改动**：`tests/unit/runner/test_broker_isolated.py::test_invalid_isolated_configuration_is_rejected`
+  的参数 `{"max_exposure": "3.1"}`（10 倍逐仓下 3.1 倍被拒绝）改为 `{"isolated_leverage": "20", "max_exposure": "10.1"}`。
+  原来那组钉住的正是这次有意放开的 3 倍。
+- **新增测试**：`tests/unit/trading/test_broker_research_leverage.py`，4 个：能到 10 倍；超过 10 倍或超过逐仓杠杆被拒绝（2 个）；
+  一个仓位按 10 倍持有约 9 倍权益。改代码前因为没有 `RESEARCH_MAX_EXPOSURE` 而失败。
+- **研究**：`research/results/overlay_pilot_leverage_2026-11-17/`，预登记在结果之前提交。
+  - 冻结的 BTC/ETH 叠加策略，150 USDT，只用开发数据，75 次回放。
+  - 结果：10 倍的 15 种组合全部亏 74% 至 95%，回撤 92% 至 99%。2 倍仍然最好。
+  - README 里有方案表（A3）。
+- **本地**【测试日志】：相关 145 个测试通过（券商、逐仓、止损、模拟交易所、`test_live_btc_eth`、`tests/architecture`）；ruff 通过。
