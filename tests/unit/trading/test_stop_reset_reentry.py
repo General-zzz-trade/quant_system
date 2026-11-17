@@ -320,3 +320,28 @@ def test_paper_s_pauses_pass_the_query_on(tmp_path):
     pauses.pause("BTCUSDT", "protective stop triggered", ends_at=1000.0 + STOP_PAUSE_SECONDS)
     clock["t"] = 1000.0 + STOP_PAUSE_SECONDS
     assert pauses.ended_by_itself("BTCUSDT") == store.ended_by_itself("BTCUSDT") == 1000.0
+
+
+def test_a_0_from_before_the_stop_does_not_count(tmp_path):
+    """Mutation self-check survivor: only a 0 decided after the stop's pause began is the reset."""
+    world, runtime, strategy = _start(tmp_path, "pause_then_reset")
+    i = world["warm"]
+    strategy.weight = 0.0
+    _close(world, runtime, i)                                        # flat first: a 0 before any stop
+    assert runtime.sessions["BTCUSDT"].flat_target_at is not None
+    strategy.weight = 0.5
+    i += 1
+    btc = world["fakes"]["BTCUSDT"]
+    while btc.positions.get("BTCUSDT", 0) == 0:
+        _close(world, runtime, i)
+        i += 1
+    (client_id,) = [k for k, v in btc.algo.items() if v["algoStatus"] == "NEW"]
+    btc.trigger_stop(client_id, btc.mark("BTCUSDT"))
+    _tick(world, runtime)
+    stopped_at = world["clock"]["now"]
+    while world["clock"]["now"] < stopped_at + STOP_PAUSE_SECONDS + 3600:
+        _close(world, runtime, i)
+        i += 1
+    for k in range(i, i + 3):
+        _close(world, runtime, k)
+    assert _status(runtime) == WAITING and btc.positions.get("BTCUSDT", 0) == 0

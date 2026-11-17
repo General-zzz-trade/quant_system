@@ -4629,3 +4629,39 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
 - **已有测试的改动**：没有。
 - **新增测试**：`tests/unit/lab/test_simulate_pause_then_reset.py` 7 个。都先跑过、在改动前失败。
 - **本地**【实际运行结果】：新测试、`test_simulate_signal_reset.py`、`test_vol_stop.py`、`test_um_judge_screen.py` 通过；ruff 通过。
+
+## 实盘：止损暂停结束后，空仓的品种等策略目标回到 0 才开仓（2026-11-17，资金路径，完整流程）
+
+- **决定**：技术负责人 2026-11-17 选"加，比现在更严"（止损后先暂停 4 小时，之后还要等策略目标回到 0）。依据：实验室 11-17 这一轮里，
+  "等信号回到 0"在前 10 个想法里有 6 个几乎年年选中（5 个五折全选，C5 选了 4 折）；冠军 E3 按实盘的"暂停 4 小时"回测，夏普从 0.62 降到 0.37。
+- **改了什么**：
+  - 第 2 版规格可选字段 `after_stop`：`"pause"`（默认，也是第 1 版的规则）或 `"pause_then_reset"`；别的值和类型都拒绝。
+    不是默认值时才写进规格的记录和身份，所以已有的模拟盘记录不变。
+  - 暂停库 `ended_by_itself(symbol)`：这个品种最近一次暂停如果到点自己结束，返回它开始的时间；没有暂停、还在暂停中、或由人解除的，返回 None。
+    不改数据库结构。端口和模拟盘的包装同步加上。
+  - 会话记下最近一次"准备好且目标正好是 0"的决定时间（只在内存里）。
+  - 退出侧的 `pause_status`：规格是 `pause_then_reset` 时，如果品种空仓、最近一次暂停到点自己结束、并且从那次暂停开始以后没有过目标为 0
+    的决定，就返回"waiting for the strategy's target to return to 0 after a stop"。这个状态和暂停一样：品种状态是 paused，
+    不能开仓，挂着的入场单撤掉，状态文件里显示原因。
+    读不出来的，返回 "unreadable"，挡住开仓。止损的告警文字写明还要等目标回到 0。
+  - 两种模式（执行、模拟盘）都从规格接这个字段。规格草稿工具：评审选了 `stop…_pause4h_then_reset` 的，草稿里写
+    `"after_stop": "pause_then_reset"`，不再算缺口。
+  - 设计取舍（我做的，写在这里供审计）：
+    - 放在规格里，不放在配置里。重新开仓的规则是和策略一起评审的；默认不变，所以 BTC/ETH 校准试运行的行为不变。
+    - "见过 0"只放在内存里，不改库结构。重启后不记得之前见过的 0，要等下一次，只会更严。
+    - 持有仓位时不等：有仓位就说明止损后已经重新开过仓。
+- **已有测试的改动**：没有。
+- **测试辅助的改动**：没有。
+- **新增测试**：
+  - `tests/unit/trading/test_stop_reset_reentry.py`：19 个测试函数，其中一个参数化 6 例，共 24 例。内容包括规格、暂停库、端到端运行时
+    （进场→止损→4 小时→等 0→再进场）、暂停期间的 0、人工解除、重启、读不出、告警、未准备好的 0、重启时持有仓位、两种模式的接线、
+    模拟盘的包装、止损前的 0。
+  - `tests/unit/tooling/test_draft_strategy_spec.py` 加 1 个。
+  - 在未改的 master 上跑同一个文件：11 个失败。参数化的 6 例"拒绝别的值"在 master 上也通过，但原因不同（master 拒绝任何不认识的字段）；
+    "没有这个字段时 4 小时后照旧"本来就该通过。
+- **变异自检**【实际运行结果】：`scripts/dev/mutants/stop_reset_reentry.json` 20 个。第一轮 19 个被杀。存活 1 个："止损之前的 0 也算"，
+  当时没有测试先让策略要过 0 再进场。补了 `test_a_0_from_before_the_stop_does_not_count`，单独重跑这个变异被杀。最终 20/20。
+- **本地**【实际运行结果】：新测试；`test_stop_pause_auto_release.py`、`test_paper_parts.py`、`test_spec_v2.py`、`test_issues.py`、
+  `test_spec_v2_runtime.py`、`test_shorts_runtime.py`、`test_stop_durability.py`、`test_draft_strategy_spec.py`、`tests/architecture` 通过；
+  ruff、`mypy trading/`（96 个文件）、`lint-imports` 通过。
+- **审计**：合并前由独立审计员审。
