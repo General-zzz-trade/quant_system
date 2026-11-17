@@ -246,3 +246,66 @@ def shuffled(y: np.ndarray, times: np.ndarray, symbols: np.ndarray, *, how: str,
         order = rng.permutation(len(blocks))
         out[idx] = y[np.concatenate([blocks[k] for k in order])]
     return out
+
+
+# -- frozen models for the forward looks (owner 2026-11-17, "执行") ---------------------------------------------------
+def fit_final(x: pd.DataFrame, y: np.ndarray, times: np.ndarray, *, kind: str, model: str) -> dict:
+    """One model fit on every row with a known target, with ``evaluate``'s settings and day weights; returned as a
+    plain record (no pickle): the fill medians, and the linear coefficients or the LightGBM booster."""
+    keep = np.isfinite(y)
+    xs, ys, w = x.iloc[np.flatnonzero(keep)], y[keep], _weights(times[keep])
+    medians = xs.replace([np.inf, -np.inf], np.nan).median().fillna(0.0)
+    filled = xs.replace([np.inf, -np.inf], np.nan).fillna(medians).to_numpy(np.float32)
+    frozen: dict = {"kind": kind, "model": model, "columns": list(x.columns), "medians": medians.tolist()}
+    if model == "lgbm":
+        from lightgbm import LGBMClassifier, LGBMRegressor
+        params = {**st.MODELS["lgbm"], "num_leaves": 31, "min_child_samples": 200, "n_estimators": 300}
+        m = (LGBMClassifier if kind == "binary" else LGBMRegressor)(**params).fit(filled, ys, sample_weight=w)
+        frozen["booster"] = m.booster_
+        return frozen
+    from sklearn.linear_model import LogisticRegression, Ridge
+    from sklearn.preprocessing import StandardScaler
+    scaler = StandardScaler().fit(filled)
+    inner = LogisticRegression(**st.MODELS["logistic"]) if model == "logistic" else Ridge(**st.MODELS["ridge"])
+    inner.fit(scaler.transform(filled), ys, sample_weight=w)
+    frozen.update(mean=scaler.mean_.tolist(), scale=scaler.scale_.tolist(),
+                  coef=np.ravel(inner.coef_).tolist(), intercept=float(np.ravel([inner.intercept_])[0]))
+    return frozen
+
+
+def predict_frozen(frozen: dict, x: pd.DataFrame) -> np.ndarray:
+    """A frozen model's predictions (probability for a yes/no target)."""
+    data = x[frozen["columns"]].replace([np.inf, -np.inf], np.nan)
+    data = data.fillna(pd.Series(frozen["medians"], index=frozen["columns"])).to_numpy(np.float64)
+    if frozen["model"] == "lgbm":
+        raw = frozen["booster"].predict(data.astype(np.float32))
+        return np.asarray(raw, dtype=float)
+    z = (data - np.array(frozen["mean"])) / np.array(frozen["scale"])
+    score = z @ np.array(frozen["coef"]) + frozen["intercept"]
+    return 1 / (1 + np.exp(-score)) if frozen["kind"] == "binary" else score
+
+
+def save_frozen(frozen: dict, stem: Path) -> Path:
+    """A LightGBM model as its text model file next to a JSON of the rest; a linear one as one JSON."""
+    import json
+    stem = Path(stem)
+    stem.parent.mkdir(parents=True, exist_ok=True)
+    meta = {k: v for k, v in frozen.items() if k != "booster"}
+    if "booster" in frozen:
+        frozen["booster"].save_model(str(stem.with_suffix(".model.txt")))
+        meta["booster_file"] = stem.with_suffix(".model.txt").name
+        stem.with_suffix(".meta.json").write_text(json.dumps(meta, indent=1) + "\n")
+        return stem.with_suffix(".model.txt")
+    stem.with_suffix(".json").write_text(json.dumps(meta, indent=1) + "\n")
+    return stem.with_suffix(".json")
+
+
+def load_frozen(path: Path) -> dict:
+    """What ``save_frozen`` wrote (a JSON, or a LightGBM text model and its JSON); nothing is unpickled."""
+    import json
+    path = Path(path)
+    if path.name.endswith(".model.txt"):
+        from lightgbm import Booster
+        meta = json.loads(path.with_name(path.name[:-len(".model.txt")] + ".meta.json").read_text())
+        return {**meta, "booster": Booster(model_file=str(path))}
+    return json.loads(path.read_text())
