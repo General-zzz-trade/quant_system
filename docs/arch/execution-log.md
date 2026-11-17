@@ -4812,3 +4812,14 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   - 删了 17 个已合并的本地分支、一个残留的变异自检工作目录；
   - 删了 `/tmp` 里 200 多个变异自检残留目录，以及 19 个已结束的审计克隆。正在用的审计克隆和两轮回测的目录都保留。
 - **本地**【实际运行结果】：`test_systemd_units.py`、`test_unit_alert.py`、`test_alert_file.py` 通过；`mypy trading/`（97 个文件）通过；`pyproject.toml` 能解析。
+
+## 主机安装脚本：日志轮转检查不再因 SIGPIPE 中断（2026-11-17，轻流程）
+
+- **问题**【实际运行结果】：2026-11-17 在主机上跑 `infra/install_host.sh`，第 4 步（`infra/deploy_logrotate.sh`）以退出码 141 结束，第 5 步（离线安全检查）没跑。
+  原因：`logrotate -d "$DST" 2>&1 | head -5`，脚本开了 `pipefail`。logrotate 输出超过 5 行时，`head` 关掉管道，logrotate 收到 SIGPIPE，整条管道失败。以前输出短，没触发。
+- **修复**：先把 logrotate 的输出收进变量，再打印前 5 行；logrotate 自己报错时仍让脚本失败。源文件和目标文件可以用
+  `QUANT_LOGROTATE_SRC`、`QUANT_LOGROTATE_DST` 覆盖（默认不变），以便测试。
+- **新增测试**：`tests/unit/infra/test_deploy_logrotate.py` 2 个，用假的 `logrotate`：输出 5000 行时脚本正常结束；logrotate 报错时脚本失败。
+  在临时副本里换回原来的管道写法，第一个测试得到退出码 141，确实能抓住这个问题。
+- **已有测试的改动**：没有。
+- 服务单元已经由那次运行装好（主网服务 `Nice=-5`、`CPUWeight=1000`、`IOWeight=1000`），合并后再跑一次安装脚本，补上第 5 步。
