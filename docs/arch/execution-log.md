@@ -4768,3 +4768,26 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   - 状态目录没通过检查；告警文件夹不能写；余额不够；对冲持仓模式。
 - **本地**【实际运行结果】：`tests/unit/tooling`、`tests/architecture` 通过；ruff、`lint-imports` 通过。
 - **用法**：资金费存储合并之后（状态库第 2 版），先在主机上迁移状态目录，再跑这个检查；全部 ✓ 之后，启动仍由技术负责人决定。
+
+## 文档更新（2026-11-17，轻流程：只改文档）
+
+技术负责人 2026-11-17 说"更新项目文档"。把今天合并的改动（#132、#135–#146）写进文档：
+- `CLAUDE.md`：
+  - 现状改到 2026-11-17：运行时扩展计划已完成；`after_stop` 规则和一键检查已合并；资金费存储在审计中。
+  - 前向检验加上实验室冠军 E3：冻结的内容、4 次查看、"还成立"的标准。
+  - 实验室一段加上：11-17 这一轮的结论（止损后怎么重新开仓比止损距离更重要）、已登记的下一轮（2026-11-17b）、
+    按波动率收紧止损的回测、每月重选的定时任务和规格草稿工具。
+  - 命令清单加上 `account_check --pilot`、`live_fills`、`lab.um_monthly`、`lab.um_forward`、`draft_strategy_spec`。
+- `README.md`：现状、E3、`after_stop`、一键检查、安全默认值里的例外。
+- `docs/arch/target.md`：
+  - 退出侧加"等策略重置"，包结构加 `reset_wait.py`；
+  - 第 2 版规格加可选的 `after_stop`，以及规格草稿工具；
+  - 研究侧加 2026-11-17 起的实验室工具。
+- `docs/binance_runbook.md`：规格的 `after_stop` 和草稿工具；启动前一键检查（启动步骤变成第 6 步）；怎样结束"等策略目标回到 0"。
+- `docs/m5_checklist.md`：启动前先跑一键检查；每日对照真实成交的命令。
+- `research/lab/README.md`：
+  - 2020 年起的快照和传统金融合约；第二种止损后规则和按波动率的止损；
+  - 两种切分；2026-11-17b 起更高的淘汰线和组合；
+  - 前向跟踪的工具、标准和正在跟踪的 E3。
+- `docs/arch/runtime-lab-strategies-plan.md`：标记计划全部完成。
+- 资金费存进状态库的文档改动在 #147 里，随它一起合并。
