@@ -4490,3 +4490,21 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
 - 同一轮 CI 里 R2 的 `test_spec_v2_runtime.py::test_the_same_strategy_in_either_schema_trades_the_same` 失败了一次（ETH 数量 2.254 对 2.255）：
   执行模式每秒下单限制用真实时钟，两次运行里 ETH 的入场是否被推迟取决于机器快慢（与 R3 运行时测试的问题相同）。把这个测试的限制时钟
   也固定为测试世界的时钟（测试辅助的改动，断言不变）。
+
+## 实验室：按波动率收紧止损（2026-11-17，研究代码，实盘程序不动）
+
+- **决定**：技术负责人 2026-11-17 上午"执行 1 和 2 做法"，并回答：只测"按波动率收紧止损"；上限 4.5% 和 8% 都测；实验室证明有用之后才改实盘程序。
+- **改了什么**：
+  - 研究经纪商 `BarBroker.set_next_stop_pct`：驱动方随一次决定的订单给一个止损距离；这些订单开出的仓位（从空仓开出或反手）一直用它，
+    直到平仓；加仓时距离不变、按新的平均开仓价算。距离必须在 (0, `stop_pct`] 之内：配置的止损是人定的上限，只能收紧。不给（默认，
+    模拟盘永远不给）就是配置的止损，行为和记录都不变。
+  - `lab/um_lab.vol_stop_pct`：每个小时收盘时，k × 最近 14 个日收益（每 24 小时一个）的标准差，夹在 1.5% 和上限之间；不够 14 个完整
+    日收益（开头，或读到的收盘缺一个小时）就用上限。`replay(stop_k=...)` 把它按决定时间交给 `lab.simulate(stop_pct_at=...)`。
+  - `StopVariant(vol_k=...)`：名字 `vol{k}x_cap{上限}_{止损后}`；固定止损的名字、标签、回放参数和以前一样（今晚的缓存照用）。
+  - 登记：`research/lab/runs/2026-11-17/vol_stop.md`（14 种新方案、"有用"的判定标准），在任何结果之前提交。
+- **已有测试的改动**：没有。
+- **新增测试**：`tests/unit/trading/test_broker_position_stop.py` 14 个（含参数化），`tests/unit/lab/test_vol_stop.py` 22 个（含参数化）。都先跑过、在改动前失败。
+- **变异自检**【实际运行结果】：`scripts/dev/mutants/vol_stop.json` 21 个。第一轮 20 个被杀；存活 1 个："`replay` 里距离晚一个小时"，
+  因为没有测试经过 `replay` 的对齐。补了 `test_replay_gives_each_decision_the_distance_known_at_its_close`，单独重跑这个变异被杀。最终 21/21。
+- **本地**【实际运行结果】：两个新测试文件和经纪商、模拟、评审员、模拟盘逐根对照的相关测试通过；`tests/architecture` 通过（一个变量原来叫
+  `spread`，碰上"研究代码只能通过共用经纪商算成本"的检查，改名 `sigma`）；ruff、`mypy trading/`、`lint-imports` 通过。
