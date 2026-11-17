@@ -81,6 +81,7 @@ def preflight(spec_path: Path, *, execution: bool, testnet: bool, stop_pct: D, s
         net = config.testnet if config is not None else testnet
         if not net and frozen.get("passed") is not True:
             raise RuntimeError("research gate not passed; mainnet execution refused")
+        target.refuse_mainnet_symbols(testnet=net, symbols=parse_spec(frozen).symbols)
         if config is None:      # the scope and the drawdown ceiling (step 13b) are checked by load_config
             config, _ = load_config(execution=True, testnet=testnet, stop_pct=stop_pct)
         check_stop_inside_liquidation(float(config.stop_pct), config.leverage or 0, config.margin)
@@ -111,6 +112,7 @@ class TargetRuntime(_runtime.TargetRuntime):
         spec, strategy = self.target_spec.execution, self.target_spec.strategy()
         if mode == "execution":
             target.refuse_unverified_mainnet(testnet=config.testnet, spec_passed=self.frozen.get("passed"))
+            target.refuse_mainnet_symbols(testnet=config.testnet, symbols=self.target_spec.symbols)
         self.account, self.clock, self._tca_log = account, clock, tca_log
         alert_prefix = ""
         if mode == "execution":                   # alerts reach a person in execution mode (step 12)

@@ -4823,3 +4823,33 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   在临时副本里换回原来的管道写法，第一个测试得到退出码 141，确实能抓住这个问题。
 - **已有测试的改动**：没有。
 - 服务单元已经由那次运行装好（主网服务 `Nice=-5`、`CPUWeight=1000`、`IOWeight=1000`），合并后再跑一次安装脚本，补上第 5 步。
+
+## 实盘只交易 BTCUSDT 和 ETHUSDT 的硬限制（2026-11-17，完整流程）
+
+- **决定**：技术负责人 2026-11-17 问"目前如何去改成做BTC和ETH，不再全市场这样做"，在选项里选了"加硬限制"：实盘程序只能交易
+  BTCUSDT 和 ETHUSDT。2026-11-16 起的全市场范围收回。测试网和模拟盘仍可跑任意 USDT 永续（R1–R7 的测试要用）。
+- **改了什么**【代码】：
+  - `trading/domain/strategy/spec.py`：`MAINNET_SYMBOLS = frozenset({"BTCUSDT", "ETHUSDT"})`，注明决定。
+  - `trading/infrastructure/target.py`：`refuse_mainnet_symbols(testnet=, symbols=)`，主网且规格列了别的品种就抛错，错误信息列出多出来的品种。
+  - `trading/infrastructure/cli/target.py`：两处调用。
+    - 启动检查 `preflight`：紧跟"规格未通过"的拒绝之后、读配置和连账户之前；
+    - 运行时组装处（`TargetRuntime.__init__`）：紧跟同一个拒绝之后，给跳过启动检查的调用方（测试、工具）多一道。
+  - `scripts/pilot_check.py`（`account_check --pilot`）：多一项"规格只交易 BTCUSDT 和 ETHUSDT"，列出别的品种。
+- **已有测试的改动**：没有。
+- **测试辅助的改动**：没有。
+- **新增测试**：
+  - `tests/unit/trading/test_mainnet_symbols.py` 10 个：
+    - 常量就是这两个；
+    - 主网规格含 SOL、XRP、DOGE 被拒；只有 BTC、只有 ETH、两个都有都放行；
+    - 测试网和模拟盘含 SOL 照常；
+    - 运行时组装处也拒绝，且没建状态目录；
+    - 主网入口在写任何账户设置之前拒绝（照 `test_risk_state.py` 里"规格未通过"那条的写法）。
+  - `tests/unit/tooling/test_pilot_check.py` 1 个：规格含 SOLUSDT 时检查项打 ✗ 并写出 SOLUSDT。
+  - 改代码之前先跑新测试：导入 `MAINNET_SYMBOLS` 失败，原因正确。
+- **变异自检**【测试日志】：`scripts/dev/mutants/mainnet_symbols.json` 7 个，第一轮 7/7 被抓住：
+  - 启动检查不调用；启动检查把主网当测试网；运行时不调用；
+  - 测试网也拒绝；永远没有"别的品种"；名单里多一个 SOLUSDT；试运行检查永远打 ✓。
+- **本地**【测试日志】：
+  - 相关测试全过：tests/architecture、启动相关的 characterization、tests/unit/tooling、规格、状态目录、主机锁、组装等。
+  - ruff 通过；`mypy trading/` 97 个文件无问题；lint-imports 5 个契约都保持。
+- **没改的**：研究台的品种清单和实盘条件（150 USDT、两个品种各半、2 倍）是另一步，不在这个 PR 里。
