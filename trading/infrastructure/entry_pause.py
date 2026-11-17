@@ -54,8 +54,11 @@ def main(argv: list[str] | None = None, *, stdin: TextIO = sys.stdin, stdout: Te
         if stdin.readline().strip() != args.symbol:
             print("not released", file=stdout)
             return 1
-        pauses.release_wait(args.symbol, args.reason)
-        print(f"ended the wait of {args.symbol}; reason recorded: {args.reason.strip()}", file=stdout)
+        if not pauses.release_wait(args.symbol, args.reason):
+            print(f"no pause of {args.symbol} has ended by itself any more; nothing recorded", file=stdout)
+            return 0
+        print(f"recorded the end of {args.symbol}'s wait (it matters only for a flat symbol whose spec says after_stop "
+              f"pause_then_reset); reason recorded: {args.reason.strip()}", file=stdout)
         return 0
     if cause is None:
         print(f"no pause for {args.symbol}", file=stdout)

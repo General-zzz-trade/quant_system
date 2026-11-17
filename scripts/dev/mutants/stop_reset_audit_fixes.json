@@ -18,7 +18,7 @@
   "trading/adapters/sqlite/order_journal.py",
   "s.owner=? AND s.reducing=0 AND ",
   "s.owner=? AND ",
-  "tests/unit/trading/test_stop_reset_reentry.py::test_after_the_4_hours_the_symbol_waits_until_the_target_was_0_then_enters_again"
+  "tests/unit/trading/test_stop_reset_reentry.py::test_only_an_entry_created_after_the_time_and_filled_ends_the_wait"
  ],
  [
   "entries before the stop count",
@@ -32,7 +32,7 @@
   "trading/adapters/sqlite/order_journal.py",
   "\"s.created_at > ? AND EXISTS (SELECT 1 FROM execution_fills f WHERE f.scope=s.scope \"\n                             \"AND f.intent_id=s.intent_id) LIMIT 1\"",
   "\"s.created_at > ? LIMIT 1\"",
-  "tests/unit/trading/test_stop_reset_reentry.py::test_after_the_4_hours_the_symbol_waits_until_the_target_was_0_then_enters_again"
+  "tests/unit/trading/test_stop_reset_reentry.py::test_only_an_entry_created_after_the_time_and_filled_ends_the_wait"
  ],
  [
   "journal not wired",

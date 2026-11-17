@@ -4713,3 +4713,12 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
 - **修复后的测试**：这个文件现在 25 个测试函数、30 例，全部通过。相关的 `test_stop_pause_auto_release.py`、`test_spec_v2.py`、
   `test_paper_compare*.py`、`test_paper_parts.py`、`test_spec_v2_runtime.py`、`test_draft_strategy_spec.py`、`test_entry_pause.py`、
   `tests/architecture` 通过；ruff、`mypy trading/`（97 个文件）、`lint-imports` 通过【实际运行结果】。
+
+### 复核（2026-11-17）
+
+审计员在 ed8eda51 复核修复：没有阻塞问题，没有应修问题，有两点轻微，已改：
+- 已提交的变异文件里，那两个存活变异还指向原来的测试，重跑会得到 7/9；现在改为指向直接查询的测试，重跑就是 9/9。
+- `entry_pause release` 的新分支在最近一次暂停到点自己结束时，就提出并写一行解除记录，不管规格是不是 `pause_then_reset`、品种有没有持仓。
+  这一行不生效，也不碍事。现在打印的文字按实际结果写：没写入时说明没写；写入时说明只对空仓、规格是 `pause_then_reset` 的品种有意义。
+  `status` 仍只列生效中的暂停，等待只显示在运行时的状态文件里。
+- 原来的轻微第 6 点（模拟盘不算止损那根 K 线收盘时的决定）照旧留着。
