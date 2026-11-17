@@ -313,8 +313,13 @@ class Judge:
     # below window_hours bars). False only for reproducing the first run's numbers.
     ready_only: bool = True
     lookahead: Callable[[str, dict], list[str]] | None = None
+    # The cost lever (owner 2026-11-17): every replay's entries, ``lab.um_lab.replay``'s ``execution`` and ``ttl_bars``.
+    execution: str = "market"
+    ttl_bars: int = 1
 
     def __post_init__(self) -> None:
+        if self.execution not in ("market", "maker") or self.ttl_bars < 1:
+            raise ValueError(f"not an execution: {self.execution!r} with ttl_bars {self.ttl_bars}")
         if len(self.lists) != len(self.periods):
             raise ValueError(f"one symbol list per period: {len(self.lists)} lists, {len(self.periods)} periods")
         if any(len(symbols) > self.slots for symbols in self.lists):
@@ -361,7 +366,8 @@ class Judge:
                 if not (w[(w.index >= start - H) & (w.index < end)] != 0).any():
                     continue
                 r = lab.replay(symbol, w, cost_multiplier=config.cost, start=start, end=end, snapshot=self.snapshot,
-                               starting_balance=str(slot), **config.stop.replay_terms(), **self._leverage())
+                               starting_balance=str(slot), **config.stop.replay_terms(), **self._leverage(),
+                               **self._execution())
                 if not len(r["curve"]):
                     continue
                 curves.append(r["curve"])
@@ -392,12 +398,19 @@ class Judge:
         cache exactly as they did."""
         return {"leverage": self.terms.leverage} if D(self.terms.leverage) != 1 else {}
 
+    def _execution(self) -> dict:
+        """The replay's entry execution when it is not market with a one-bar lifetime; none otherwise, so earlier runs
+        replay, cache and register exactly as they did."""
+        return {} if (self.execution, self.ttl_bars) == ("market", 1) else \
+            {"execution": self.execution, "ttl_bars": self.ttl_bars}
+
     # -- cache and registry --------------------------------------------------------------------------------
     def _settings(self) -> dict:
         """What a cached result depends on besides its configuration."""
         return {"snapshot": self.snapshot.name, "capital": self.terms.capital, "slots": self.slots,
                 "periods": [list(p) for p in self.periods], "lists": [list(symbols) for symbols in self.lists],
-                "legacy_days": self.legacy_days, "ready_only": self.ready_only, **self._leverage()}
+                "legacy_days": self.legacy_days, "ready_only": self.ready_only, **self._leverage(),
+                **self._execution()}
 
     def _path(self, config: Config) -> Path:
         tag = "_".join(f"{k}{v}" for k, v in sorted(config.params.items()))
@@ -441,10 +454,12 @@ class Judge:
         row = {"date": self.run_date, "idea": config.idea, "params": config.params, "stop": config.stop.name,
                "cost_multiplier": config.cost, "holdout": k == self.holdout,
                "terms": f"{self.terms.capital} USDT, {self.slots} slots, yearly list, {config.stop.name}"
-                        + (f", {self.terms.leverage}x" if self._leverage() else ""),
+                        + (f", {self.terms.leverage}x" if self._leverage() else "")
+                        + (f", {self.execution} ttl {self.ttl_bars}" if self._execution() else ""),
                "window": [_date(t) for t in self.periods[k]], "total_return": s.get("total_return"),
                "sharpe": s.get("sharpe"), "max_drawdown": s.get("max_drawdown"),
                "round_trips": len(result["trips"]), "fills": result["fills"]}
+        row |= self._execution()
         if self.note:
             row["note"] = self.note
         if self.legacy_days:
