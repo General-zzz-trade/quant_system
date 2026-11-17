@@ -31,6 +31,9 @@ class Market:
     def __init__(self, last):
         self.rows = [_row(T0 + k * HOUR) for k in range(last + 1)]
 
+    def get_funding_intervals(self):                       # R4: every symbol settles every 8 hours
+        return {"BTCUSDT": 8, "ETHUSDT": 8, "AUSDT": 8, "BUSDT": 8, "CUSDT": 8}
+
     def get_funding_history(self, symbol, *, limit=1000):
         return [(t, 0.0001) for t in range(T0, T0 + 48 * HOUR, 8 * HOUR)]
 
@@ -39,6 +42,8 @@ class Market:
 
 
 class Session:
+    strategy = SimpleNamespace(cross_sectional=False, references=lambda: ())    # R3/R7d: each symbol on its own
+
     def __init__(self, symbol, cursor, log):
         self.symbol, self.cursor, self.log = symbol, T0 + cursor * HOUR, log
         self.funding, self.bars = {}, deque()

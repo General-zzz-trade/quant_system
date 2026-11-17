@@ -1,0 +1,37 @@
+[
+ [
+  "extras ignored",
+  "trading/domain/market.py",
+  "    if extras:\n        for name in KLINE_FIELDS:",
+  "    if False:\n        for name in KLINE_FIELDS:",
+  "tests/unit/trading/test_strategy_inputs.py"
+ ],
+ [
+  "unknown is zero",
+  "trading/domain/market.py",
+  "else float(\"nan\")",
+  "else 0.0",
+  "tests/unit/trading/test_strategy_inputs.py"
+ ],
+ [
+  "session window plain",
+  "trading/application/session.py",
+  "frame_from_bars(list(self.bars), extras=True)",
+  "frame_from_bars(list(self.bars))",
+  "tests/unit/trading/test_strategy_inputs.py"
+ ],
+ [
+  "unlisted reference allowed",
+  "trading/domain/strategy/spec.py",
+  "    if unlisted:     # R7a",
+  "    if False:     # R7a",
+  "tests/unit/trading/test_strategy_inputs.py"
+ ],
+ [
+  "per-symbol reads btc",
+  "trading/domain/strategy/base.py",
+  "    def references(self) -> tuple[str, ...]:\n        return ()",
+  "    def references(self) -> tuple[str, ...]:\n        return (\"BTCUSDT\",)",
+  "tests/unit/trading/test_strategy_inputs.py"
+ ]
+]

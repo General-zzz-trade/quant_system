@@ -3,8 +3,11 @@
     python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files/binance_public_<date>
 
 Paper runs the execution path on the simulated exchange (ADR-0013 plan B); research runs ``lab.simulate`` (the
-shared research broker) with the same spec. Over the same bars their fills must be the same, except where paper
-left research on purpose (a ``paper_divergence`` event). This tool says which, and never says "equal" when unsure.
+shared research broker) with the same spec. The strategy is the one the paper record names (the overlay, or from R7d
+any registered strategy): every symbol's targets come from one call of it on the bars paper saw, as the runtime
+decides them, so a cross-sectional strategy is compared too. Over the same bars their fills must be the same, except
+where paper left research on purpose (a ``paper_divergence`` event). This tool says which, and never says "equal"
+when unsure.
 
 It reads, read-only: the paper directory's ``state.sqlite`` in one read transaction (the saved paper state and the
 order journal's fills and intents), its event log (the record's first warm-up, the ``paper_divergence`` events) and
@@ -44,10 +47,12 @@ from typing import Any
 from data.quality.causal_bars import load_bars
 from lab.data import HOUR, frame_from_bars, funding_series, load_funding
 from lab.simulate import simulate
-from lab.strategy import StrategySpec, compute_targets
+from lab.strategy import StrategySpec
 from trading.adapters.codec import decode
 from trading.adapters.simulated.bar_broker import SYMBOL_RULES, broker_config
 from trading.application.runtime import PAPER_SCHEMA
+from trading.domain.strategy.base import STRATEGIES, OverlayStrategy, Strategy, Window
+from trading.domain.strategy.spec import PARAMS
 
 EQUAL, INCONSISTENT, CANNOT = "一致", "不一致", "无法比较"
 EXIT_CODES = {EQUAL: 0, INCONSISTENT: 1, CANNOT: 2}
@@ -199,7 +204,7 @@ def _paper_fills(symbol: str, broker: dict[str, Any], journal: list[dict[str, An
 def _bars(data_dir: Path, symbol: str, window: int, last: int) -> list[Any]:
     path = data_dir / f"{symbol}_1h.csv"
     try:
-        bars = load_bars(path, start_ms=window)
+        bars = load_bars(path, start_ms=window, extras=True)          # R7 audit F4: the kline fields too
     except BAD_DATA as exc:
         raise CannotCompare(f"K 线快照 {path} 不能用：{exc}") from None
     bars = [b for b in bars if b.open_time <= last]
@@ -251,15 +256,32 @@ def _same_data(symbol: str, broker: dict[str, Any], bars: list[Any], funding: di
 
 
 # -- research -----------------------------------------------------------------------------------------------------
+def _strategy(identity: dict[str, Any]) -> tuple[Strategy, StrategySpec]:
+    """The strategy a paper record names (``TargetSpec.identity``) and its execution settings: the overlay's record,
+    or a registered strategy's name, parameters and settings (R7d)."""
+    if "strategy" not in identity:
+        spec = StrategySpec.from_record({k: v for k, v in identity.items() if k != "allow_short"})
+        return OverlayStrategy(spec), spec
+    name = identity["strategy"]
+    if name not in STRATEGIES or name not in PARAMS:
+        raise CannotCompare(f"不认识模拟盘记录里的策略 {name}")
+    try:
+        strategy = STRATEGIES[name](PARAMS[name](identity["params"]))
+        spec = StrategySpec(band=float(identity["band"]), execution=str(identity["execution"]),
+                            ttl_bars=int(identity["ttl_bars"]))
+    except (KeyError, TypeError, ValueError) as exc:
+        raise CannotCompare(f"模拟盘记录里的策略 {name} 不能重建：{exc}") from None
+    return strategy, spec
+
+
 def _research(symbol: str, spec: StrategySpec, config: dict[str, Any], bars: list[Any],
-              funding: dict[int, tuple[D, D]], first: int, last: int) -> list[Fill]:
+              funding: dict[int, tuple[D, D]], first: int, last: int, targets: Any) -> list[Fill]:
     rules = SYMBOL_RULES.get(symbol)
     if rules is None:
         raise CannotCompare(f"研究没有 {symbol} 的交易规则")
     balance = str(config.get("starting_balance"))
     if broker_config(spec, rules, starting_balance=balance).record() != config:
         raise CannotCompare(f"{symbol}：模拟交易所的撮合配置与研究的不同")
-    targets = compute_targets(frame_from_bars(bars), funding_series(funding), spec)
     result = simulate(symbol, bars, targets, funding, spec, start_ms=first, end_ms=last + HOUR,
                       starting_balance=balance)
     orders = {row["id"]: str(row["internal_id"]) for row in result.order_rows}
@@ -301,9 +323,18 @@ def _explained(symbol: str, paper: Fill | None, research: Fill | None, events: l
     return None
 
 
-def _compare_symbol(symbol: str, document: dict[str, Any], warm: dict[str, Any], journal: list[dict[str, Any]],
-                    clients: dict[str, str], events: list[dict[str, Any]], data_dir: Path,
-                    spec: StrategySpec) -> SymbolResult:
+@dataclass
+class _Inputs:
+    """What paper saw for one symbol: its bars from the warm-up window on, the settlements, the first live bar."""
+    broker: dict[str, Any]
+    config: dict[str, Any]
+    bars: list[Any]
+    funding: dict[int, tuple[D, D]]
+    first: int
+    last: int
+
+
+def _inputs(symbol: str, document: dict[str, Any], warm: dict[str, Any], data_dir: Path) -> _Inputs:
     saved = document["venue"]["brokers"][symbol]
     broker, config = saved["broker"], saved["config"]
     last_open, count = int(warm["last_open"]), int(warm["bars"])
@@ -315,8 +346,14 @@ def _compare_symbol(symbol: str, document: dict[str, Any], warm: dict[str, Any],
     bars = _bars(data_dir, symbol, window, last)
     funding = _funding(data_dir, symbol, window, last)
     _same_data(symbol, broker, bars, funding, first)
+    return _Inputs(broker, config, bars, funding, first, last)
+
+
+def _compare_symbol(symbol: str, inputs: _Inputs, journal: list[dict[str, Any]], clients: dict[str, str],
+                    events: list[dict[str, Any]], spec: StrategySpec, targets: Any) -> SymbolResult:
+    broker, first, last = inputs.broker, inputs.first, inputs.last
     paper = _paper_fills(symbol, broker, journal)
-    research = _research(symbol, spec, config, bars, funding, first, last)
+    research = _research(symbol, spec, inputs.config, inputs.bars, inputs.funding, first, last, targets)
     n = 0
     while n < len(paper) and n < len(research) and paper[n].key() == research[n].key():
         n += 1
@@ -341,8 +378,15 @@ def compare(paper_dir: Path, data_dir: Path) -> Report:
         if symbols != sorted(document["venue"]["brokers"]):
             raise CannotCompare("模拟盘状态里的品种与模拟交易所的品种不同")
         record, warm = _record_start(events, symbols)
-        spec = StrategySpec.from_record(document["spec"])
-        results = [_compare_symbol(s, document, warm[s], journal, clients, record, data_dir, spec) for s in symbols]
+        strategy, spec = _strategy(document["spec"])
+        inputs = {s: _inputs(s, document, warm[s], data_dir) for s in symbols}
+        # R7d: every symbol's targets in one call of the strategy, on what paper saw - as the runtime decides
+        windows = {s: Window(frame_from_bars(i.bars, extras=True), funding_series(i.funding))
+                   for s, i in inputs.items()}
+        targets = strategy.history(windows)
+        if not document["spec"].get("allow_short", True):        # the session trades a negative target as 0 (R6)
+            targets = {s: t.assign(target=t["target"].clip(lower=0.0)) for s, t in targets.items()}
+        results = [_compare_symbol(s, inputs[s], journal, clients, record, spec, targets[s]) for s in symbols]
     except CannotCompare as exc:
         return Report(CANNOT, paper_dir, data_dir, reason=str(exc))
     except Exception as exc:                 # whatever else cannot be read is never "equal" either

@@ -1,0 +1,62 @@
+[
+ [
+  "latest takes the first row",
+  "trading/domain/strategy/base.py",
+  "        return {symbol: (float(frame[\"target\"].iloc[-1]), bool(frame[\"ready\"].iloc[-1]))",
+  "        return {symbol: (float(frame[\"target\"].iloc[0]), bool(frame[\"ready\"].iloc[-1]))"
+ ],
+ [
+  "latest always ready",
+  "trading/domain/strategy/base.py",
+  "bool(frame[\"ready\"].iloc[-1]))\n                for symbol, frame",
+  "True)\n                for symbol, frame"
+ ],
+ [
+  "window hours off by one",
+  "trading/domain/strategy/base.py",
+  "        return self.spec.window_hours()\n",
+  "        return self.spec.window_hours() + 1\n"
+ ],
+ [
+  "funding window off by one",
+  "trading/domain/strategy/base.py",
+  "        return self.spec.funding_window()\n",
+  "        return self.spec.funding_window() + 1\n"
+ ],
+ [
+  "unknown strategy accepted",
+  "trading/domain/strategy/base.py",
+  "    if name not in STRATEGIES:\n        raise ValueError",
+  "    if False:\n        raise ValueError"
+ ],
+ [
+  "history mixes symbols",
+  "trading/domain/strategy/base.py",
+  "        return {symbol: self.symbol_history(window) for symbol, window in windows.items()}",
+  "        return {symbol: self.symbol_history(next(iter(windows.values()))) for symbol in windows}"
+ ],
+ [
+  "session ignores its strategy",
+  "trading/application/session.py",
+  "        self.strategy: Strategy = strategy if strategy is not None else OverlayStrategy(spec)",
+  "        self.strategy: Strategy = OverlayStrategy(spec)"
+ ],
+ [
+  "bars window from the spec",
+  "trading/application/session.py",
+  "        self.bars: deque[Bar] = deque(maxlen=self.strategy.window_hours() + 48)",
+  "        self.bars: deque[Bar] = deque(maxlen=spec.window_hours() + 48)"
+ ],
+ [
+  "funding window from the spec",
+  "trading/application/session.py",
+  "        return funding_window(self.funding, upto, self.strategy.funding_window())",
+  "        return funding_window(self.funding, upto, self.spec.funding_window())"
+ ],
+ [
+  "funding not cut at the close",
+  "trading/application/session.py",
+  "        window = Window(frame_from_bars(list(self.bars)), self.funding_series(self.bars[-1].available_at))",
+  "        window = Window(frame_from_bars(list(self.bars)), self.funding_series(None))"
+ ]
+]

@@ -30,7 +30,9 @@ from lab.causality import check, variants, violations
 from lab.overlay_study import SPEC as OVERLAY
 from tests.unit.lab.test_pair_study import write_snapshot
 from trading.domain import market
+from trading.domain.strategy import ideas as lab_ideas
 from trading.domain.strategy import overlay as ov
+from trading.domain.strategy.base import Window
 
 ROOT = Path(__file__).resolve().parents[3]
 HOUR = 3_600_000
@@ -80,6 +82,43 @@ def _pair_ml(m):
     return ps.ml_predictions(feats, closes, RIDGE_PD_7D, oos_start=START, limit=END)[0]       # blocks' IC: labels
 
 
+def _idea_windows(m):
+    """Windows the ideas react to, all derived from the inputs (a change known later propagates the same way): taker
+    share and daily volume surges follow the hour's move, funding is scaled into the ideas' thresholds with its sign
+    turning every 10 days, and four more
+    symbols derived from BTC and ETH give the cross-sectional ideas a top and a bottom three."""
+    def window(hourly, funding):
+        move = hourly["close"] / hourly["open"] - 1
+        quote = hourly["close"] * hourly["volume"] * (1 + 9 * (move.abs() > 0.01))
+        hourly = hourly.assign(quote_volume=quote, taker_buy_quote_volume=quote * (0.5 + 0.08 * np.tanh(move * 50)))
+        return Window(hourly, funding)
+
+    out = {}
+    for symbol in (BTC, ETH):
+        rates = {t: float(r) * 20 * (1 if (t // (10 * DAY)) % 2 else -1) for t, (r, _) in m["funding"][symbol].items()}
+        out[symbol] = window(m["hourly"][symbol], pd.Series(rates, dtype=float))
+    btc, eth = m["hourly"][BTC], m["hourly"][ETH]
+    for k, (a, b) in enumerate(((1.0, 0.0), (0.5, 0.5), (0.0, 1.5), (1.5, -0.5))):
+        mixed = btc.copy()
+        for col in ("open", "high", "low", "close"):
+            mixed[col] = np.exp(a * np.log(btc[col].to_numpy()) + b * np.log(eth[col].to_numpy())) * (k + 1)
+        mixed["high"], mixed["low"] = mixed[["open", "high", "close"]].max(axis=1), mixed[["open", "low", "close"]].min(
+            axis=1)
+        out[f"X{k}USDT"] = window(mixed, out[BTC if k % 2 else ETH].funding * (1 + k / 4))
+    return out
+
+
+IDEA_CHECK_PARAMS = {"E1_squeeze_breakout": {"r": 0.9}}     # a parameter set the 280-day check data can reach
+
+
+def _idea(name):
+    """One lab idea on the check's windows, as the runtime and the lab's judge call it (R7b)."""
+    def case(m):
+        params = IDEA_CHECK_PARAMS.get(name, lab_ideas.IDEAS[name].grid[0])
+        return lab_ideas.IdeaStrategy(name, params).history(_idea_windows(m))
+    return case
+
+
 CASES = [
     ("market.frame_from_bars", market.frame_from_bars, lambda m: market.frame_from_bars(m["bars"][BTC])),
     ("market.aggregate.4h", market.aggregate, lambda m: market.aggregate(m["hourly"][BTC], 4)),
@@ -125,13 +164,20 @@ CASES = [
      lambda m: rs.portfolio_multiplier({s: rs.daily_frame(m["hourly"][s], "simple") for s in (BTC, ETH)})),
     ("overlay_risk_study.hourly_targets.combined", rs.hourly_targets,
      lambda m: rs.hourly_targets(m["hourly"], rs.VARIANTS["combined"])),
+    # every idea through IdeaStrategy.history; lab_frame (the ideas' input) is the module's checked function
+    *((f"ideas.{name}", lab_ideas.lab_frame, _idea(name)) for name in lab_ideas.IDEAS),
 ]
 
 # -- the registry ---------------------------------------------------------------------------------------------------
-FEATURE_MODULES = ("trading.domain.market", "trading.domain.strategy.overlay", "lab.breakout", "lab.candidates",
+FEATURE_MODULES = ("trading.domain.market", "trading.domain.strategy.overlay", "trading.domain.strategy.ideas",
+                   "lab.breakout", "lab.candidates",
                    "lab.candidates_study", "lab.overlay_risk_study", "lab.pair", "lab.pair_study")
 OTHER_MODULES = {
     "lab": "package marker",
+    "trading.domain.strategy.spec": "parses and checks the signed spec (runtime extension R2); computes no feature",
+    "trading.domain.strategy.base": ("the strategy interface (runtime extension R1); its implementations' targets "
+                                     "are the checked functions (OverlayStrategy returns compute_targets exactly, "
+                                     "tests/unit/trading/test_strategy_interface.py)"),
     "lab.breakout_study": "study driver of a closed line; its signal is lab.breakout",
     "lab.candidates_forward": "forward replay; it calls the checked functions of the candidate modules",
     "lab.causality": "the check itself",
@@ -169,6 +215,7 @@ REPORT = "report or gate on finished results"
 DRIVER = "study driver"
 NOT_CHECKED = {
     "trading.domain.strategy.overlay.latest_target": "the last row of compute_targets: no time axis",
+    "trading.domain.strategy.ideas.idea_params": "checks a parameter set: no time axis",
     "lab.breakout.desired_side": NUMBER, "lab.breakout.stop_distance": NUMBER,
     "lab.candidates.sized_weight": NUMBER, "lab.candidates.fit_ridge": FIT, "lab.candidates.directional_labels": LABEL,
     "lab.pair.load_inputs": "reads the snapshot files and cuts them at `limit`", "lab.pair.labels": LABEL,

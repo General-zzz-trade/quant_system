@@ -53,11 +53,14 @@ class TargetRuntime:
                  event_log_failure: Callable[[], Issue | None] = lambda: None,
                  config_digest: str | None = None,
                  account_check: Callable[[], list[Issue]] | None = None, venue: PaperVenue | None = None,
-                 gate_clock: GateClock | None = None,
+                 gate_clock: GateClock | None = None, spec_record: dict[str, Any] | None = None,
                  exit_observer: Callable[[str, str, str], None] | None = None,
                  loss_stop: StrategyLossStop | None = None) -> None:
         self.policy, self.venue = policy, venue
         self.spec, self.mode, self.market, self.account, self.clock = spec, policy.name, market, account, clock
+        # What a paper record stores to know its strategy (R2 audit): the signed spec's identity when the composition
+        # root gives it, else the execution spec's record as before.
+        self.spec_record = spec_record if spec_record is not None else spec.record()
         self.sessions, self.journal, self.equity = sessions, journal, equity
         self.kill: Any = kill
         self.drawdown: Any = drawdown
@@ -79,7 +82,7 @@ class TargetRuntime:
         self.exits = ExitSupervisor(sessions, spec=spec, journal=journal, clock=clock, account=account, equity=equity,
                                     kill=kill, drawdown=drawdown, pauses=pauses, notifier=notifier,
                                     alert_prefix=alert_prefix, market_refused=lambda: self.market_side.refused,
-                                    decision_error=self.market_side.decision_errors.get,
+                                    decision_error=self.market_side.symbol_issue,
                                     cycle_errors=self._runtime_issues, warmed=lambda: self._warmed,
                                     account_check=account_check, exit_observer=exit_observer, loss_stop=loss_stop)
         self.reporter = StatusReporter(sessions, mode=policy.name, clock=clock, spec_passed=spec_passed,
@@ -126,13 +129,15 @@ class TargetRuntime:
             assert self.venue is not None
             self.venue.restore(saved["venue"])
         cursors: dict[str, Any] = saved["symbols"] if saved is not None else {}
+        self.market_side.refresh_intervals(now_ms)      # R4: each symbol's funding interval, before its history
         missed: dict[str, list[Bar]] = {}
         resumed: dict[str, int | None] = {}
         for symbol, session in self.sessions.items():
             snap = cursors.get(symbol)
             resume = resumed[symbol] = snap["cursor"] if snap else None
             gap = 0 if resume is None else max(0, (now_ms // HOUR * HOUR - HOUR - resume) // HOUR)
-            limit = self.spec.funding_window() + 30 + gap // 8 + 1
+            per = (session.funding_interval or HOUR) // HOUR      # R4: the symbol's interval; unknown, hourly
+            limit = session.strategy.funding_window() + 30 + gap // per + 1   # R2: the strategy's windows
             for at, rate in self.market.get_funding_history(symbol, limit=limit):
                 session.funding[round(at / HOUR) * HOUR] = rate
             rows = self.market.get_klines(symbol, "60", (session.bars.maxlen or 0) + gap, now_ms=now_ms)
@@ -147,8 +152,8 @@ class TargetRuntime:
                 else:
                     session.advance(bar)
             have = min(len(session.bars) + len(missed[symbol]), session.bars.maxlen or 0)
-            if have < self.spec.window_hours():
-                raise RuntimeError(f"{symbol}: incomplete warmup ({have}/{self.spec.window_hours()})")
+            if have < session.strategy.window_hours():
+                raise RuntimeError(f"{symbol}: incomplete warmup ({have}/{session.strategy.window_hours()})")
             self._decided[symbol] = session.cursor
         self._warmed = True
         self._paper_loaded = self._paper_store is not None
@@ -206,7 +211,7 @@ class TargetRuntime:
         data = self._paper_store.load()
         if data is None:
             return None
-        if (data.get("schema") != PAPER_SCHEMA or data.get("spec") != self.spec.record()
+        if (data.get("schema") != PAPER_SCHEMA or data.get("spec") != self.spec_record
                 or set(data["symbols"]) != set(self.sessions)):
             raise RuntimeError("saved paper state belongs to another spec or symbol set; "
                                "start a new paper record with --reset-paper-state")
@@ -225,7 +230,7 @@ class TargetRuntime:
     def paper_document(self) -> dict[str, Any]:
         """The paper state: the simulated exchange's snapshot and the last bar each symbol has decided on."""
         assert self.venue is not None
-        return {"schema": PAPER_SCHEMA, "spec": self.spec.record(),
+        return {"schema": PAPER_SCHEMA, "spec": self.spec_record,
                 "symbols": {symbol: {"cursor": cursor} for symbol, cursor in self._decided.items()},
                 "venue": self.venue.snapshot()}
 

@@ -9,6 +9,7 @@ from typing import Any
 from trading.application.equity import EquitySource
 from trading.application.ports import Clock, DrawdownGuard, KillSwitch, Notifier
 from trading.application.session import TargetSession
+from trading.domain.bars import HOUR
 
 
 class StatusReporter:
@@ -39,6 +40,7 @@ class StatusReporter:
             out["symbols"][symbol] = {
                 "last_bar_open": s.cursor, "target": s.last_target[0], "target_ready": s.last_target[1],
                 "entry_ready": s.entry_ready, "entry_reason": s.entry_reason,
+                "funding_interval_hours": s.funding_interval // HOUR if s.funding_interval else None,
                 "state": s.state.value,
                 "position": readable(lambda: str(s.position_qty())),
                 "sleeve_equity": str(s.sleeve_equity()),

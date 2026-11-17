@@ -18,11 +18,11 @@ from trading.domain.bars import HOUR, Bar
 from trading.domain.market import frame_from_bars, funding_window
 from trading.domain.orders import BLOCKED, SETTLED
 from trading.domain.rebalance import Intent, close_without_equity, plan
-from trading.domain.strategy.overlay import StrategySpec, latest_target
+from trading.domain.strategy.base import OverlayStrategy, Strategy, Window
+from trading.domain.strategy.overlay import StrategySpec
 from trading.domain.events import EventKind
 from trading.domain.symbol_state import SymbolState
 
-FUNDING_INTERVAL = 8 * HOUR
 MAX_ENTRY_DELAY_MS = 10 * 60_000
 
 
@@ -77,11 +77,20 @@ class ExecutionParts:
 
 class TargetSession:
     def __init__(self, symbol: str, spec: StrategySpec, *, journal: EventLog, rules: LotRules,
-                 make_order: OrderFactory, execution: ExecutionParts, allocation: Decimal = Decimal("0.5")) -> None:
+                 make_order: OrderFactory, execution: ExecutionParts, allocation: Decimal = Decimal("0.5"),
+                 strategy: Strategy | None = None, allow_short: bool | None = None) -> None:
         self.symbol, self.spec, self.journal, self.rules = symbol, spec, journal, rules
         self.allocation, self._make_order = allocation, make_order
-        self.bars: deque[Bar] = deque(maxlen=spec.window_hours() + 48)
+        # R1 (runtime extension plan): the target comes from a strategy behind the shared interface; the spec still
+        # carries the execution settings (band, execution mode, maker lifetime). Without one, the spec's overlay.
+        self.strategy: Strategy = strategy if strategy is not None else OverlayStrategy(spec)
+        # R6: whether the signed spec allows shorts; without one, as the spec's own rule says (``long_only``).
+        self.allow_short = (not spec.long_only) if allow_short is None else bool(allow_short)
+        self.bars: deque[Bar] = deque(maxlen=self.strategy.window_hours() + 48)
         self.funding: dict[int, float] = {}
+        # Plan R4: ms between this symbol's funding settlements, from the exchange (the market side sets it); unknown,
+        # the symbol takes no entries.
+        self.funding_interval: int | None = None
         self.cursor: int | None = None
         self.entry_ready, self.entry_reason = False, "no live bar yet"
         self.state = SymbolState.WARMING      # set by the exit side every cycle (ADR-0014 point 3)
@@ -101,11 +110,14 @@ class TargetSession:
     # -- data ---------------------------------------------------------------
     def funding_series(self, upto: int | None = None) -> Any:
         """Settlements known at ``upto`` (all when None); a catch-up must not see later ones."""
-        return funding_window(self.funding, upto, self.spec.funding_window())
+        return funding_window(self.funding, upto, self.strategy.funding_window())
+
+    def window(self) -> Window:
+        """The closed bars and the funding settlements known at the newest close: what the strategy decides on."""
+        return Window(frame_from_bars(list(self.bars), extras=True), self.funding_series(self.bars[-1].available_at))
 
     def _target(self) -> tuple[float, bool]:
-        return latest_target(frame_from_bars(list(self.bars)), self.funding_series(self.bars[-1].available_at),
-                             self.spec)
+        return self.strategy.latest({self.symbol: self.window()})[self.symbol]
 
     # -- execution callbacks ------------------------------------------------
     def restore_pending(self) -> None:
@@ -217,25 +229,31 @@ class TargetSession:
         rate = self.funding.get(bar.open_time)
         return Decimal(str(rate)) if rate is not None else None
 
-    def decide(self, bar: Bar, *, now_ms: int) -> None:
-        """Rebalance toward the target at ``bar``'s close; ``now_ms`` is the entry gates' clock."""
+    def decide(self, bar: Bar, *, now_ms: int, target: tuple[float, bool] | None = None) -> None:
+        """Rebalance toward the target at ``bar``'s close; ``now_ms`` is the entry gates' clock. ``target`` is the
+        (weight, ready) a cross-sectional strategy gave for every symbol at once (R3); without it the session asks
+        its own strategy."""
         reasons = []
         if now_ms - bar.available_at > MAX_ENTRY_DELAY_MS:
             reasons.append("bar processed too late")
-        latest_settlement = bar.available_at // FUNDING_INTERVAL * FUNDING_INTERVAL
-        if latest_settlement not in self.funding:
+        interval = self.funding_interval
+        if interval is None:
+            reasons.append("funding interval not known")
+        elif bar.available_at // interval * interval not in self.funding:
             reasons.append("funding settlement at or before this close not published yet")
         self.entry_ready, self.entry_reason = not reasons, "; ".join(reasons)
-        target, ready = self._target()
-        self.last_target = (target, ready)
+        weight, ready = target if target is not None else self._target()
+        if weight < 0 and not self.allow_short:
+            weight = 0.0             # R6: no short unless the spec allows it; one already held is closed
+        self.last_target = (weight, ready)
         self.drop_deferred("superseded by a newer bar")
         if not ready:
             return
         equity = self.sleeve_equity()
         if equity <= 0:      # unknown: only a whole-position close can be planned (R13, decided 2026-11-15)
-            self.submit(close_without_equity(target, self.position_qty()), bar, "rebalance")
+            self.submit(close_without_equity(weight, self.position_qty()), bar, "rebalance")
             return
-        intents = plan(target, equity=equity, price=bar.close, current_qty=self.position_qty(),
+        intents = plan(weight, equity=equity, price=bar.close, current_qty=self.position_qty(),
                        entry_pending=any(not reduce_only for reduce_only in self.pending.values()),
                        band=self.spec.band, step=self.rules.step, min_qty=self.rules.min_qty,
                        min_notional=self.rules.min_notional)
@@ -264,4 +282,4 @@ class TargetSession:
         self.flattener.flatten(reason, bar=bar, ledger=self.position_qty, consume=self.consume_fills)
 
 
-__all__ = ["Deferred", "ExecutionParts", "FUNDING_INTERVAL", "MAX_ENTRY_DELAY_MS", "TargetSession"]
+__all__ = ["Deferred", "ExecutionParts", "MAX_ENTRY_DELAY_MS", "TargetSession"]

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from contextlib import AbstractContextManager
 from decimal import Decimal
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from typing import Any, Callable, Optional, Protocol, runtime_checkable
 
 from trading.domain.bars import Bar
@@ -33,6 +33,9 @@ class PositionView(Protocol):
 
     @property
     def qty(self) -> Decimal: ...
+
+    @property
+    def entry_price(self) -> Decimal | None: ...
 
     @property
     def mark_price(self) -> Decimal | None: ...
@@ -105,6 +108,8 @@ class MarketData(Protocol):
 
     def get_funding_history(self, symbol: str, *, limit: int = 1000) -> list[tuple[int, float]]: ...
 
+    def get_funding_intervals(self) -> dict[str, int]: ...     # symbol -> hours between settlements (plan R4)
+
 
 @runtime_checkable
 class ExchangeAccount(Protocol):
@@ -113,6 +118,9 @@ class ExchangeAccount(Protocol):
     def get_account_equity(self) -> float: ...
 
     def get_positions(self, symbol: str = "", *, strict: bool = True) -> tuple[PositionView, ...]: ...
+
+    # Every symbol's position row in one read, flat included; a symbol without a row is unknown (plan R5).
+    def get_position_snapshot(self) -> Mapping[str, PositionView]: ...
 
     def get_open_orders(self, symbol: str = "", *, strict: bool = True) -> tuple[OpenOrderView, ...]: ...
 

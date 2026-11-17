@@ -108,7 +108,7 @@ def test_a_failed_reconciliation_blocks_entries_until_the_next_clean_pass(tmp_pa
     assert session.executor.ready is True
     sync = session.stops.sync
 
-    def broken():
+    def broken(positions=None):
         raise OSError("stop lookup failed")
 
     session.stops.sync = broken

@@ -205,7 +205,9 @@ class BinanceAdapter:
             raise RuntimeError("Invalid Binance position snapshot")
         positions = []
         for p in data:
-            amt = Decimal(str(p.get("positionAmt", "0")))
+            if not isinstance(p, dict) or "positionAmt" not in p:      # R8 re-check: unknown, never flat
+                raise RuntimeError("Invalid Binance position quantity")
+            amt = Decimal(str(p["positionAmt"]))
             if not amt.is_finite():
                 raise RuntimeError("Invalid Binance position quantity")
             if amt == 0:
@@ -227,24 +229,38 @@ class BinanceAdapter:
         for the symbol - unknown, never 'flat' (ADR-0012, audit M2: get_positions drops flat rows). Errors
         propagate."""
         data = self._client.request_signed(method="GET", path="/fapi/v2/positionRisk", params={"symbol": symbol})
+        return self._position_rows(data).get(symbol)
+
+    def get_position_snapshot(self) -> dict[str, VenuePosition]:
+        """Every position row of the account in one read (``positionRisk`` without a symbol, weight 5 against 5 per
+        symbol; plan R5), flat rows included, by symbol. A symbol without a row is not in it: unknown, never flat -
+        the caller reads it alone. Errors propagate."""
+        return self._position_rows(self._client.request_signed(method="GET", path="/fapi/v2/positionRisk", params={}))
+
+    @staticmethod
+    def _position_rows(data: Any) -> dict[str, VenuePosition]:
         if not isinstance(data, list):
             raise RuntimeError("Invalid Binance position snapshot")
-        rows = [p for p in data if p.get("symbol") == symbol]
-        if not rows:
-            return None
-        if len(rows) > 1 or rows[0].get("positionSide", "BOTH") != "BOTH":
-            raise RuntimeError("Hedge-mode position present; one-way mode required")
-        p = rows[0]
-        amt = Decimal(str(p.get("positionAmt", "0")))
-        if not amt.is_finite():
-            raise RuntimeError("Invalid Binance position quantity")
-        return VenuePosition(
-            venue="binance", symbol=symbol, qty=amt, entry_price=Decimal(str(p.get("entryPrice", "0"))),
-            mark_price=Decimal(str(p.get("markPrice", "0"))),
-            liquidation_price=Decimal(str(p.get("liquidationPrice", "0"))),
-            unrealized_pnl=Decimal(str(p.get("unRealizedProfit", "0"))),
-            leverage=int(p.get("leverage", "1")), margin_type=p.get("marginType", "").lower(),
-            ts_ms=int(time.time() * 1000))
+        out: dict[str, VenuePosition] = {}
+        now = int(time.time() * 1000)
+        for p in data:
+            symbol = p.get("symbol") if isinstance(p, dict) else None
+            if not isinstance(symbol, str) or not symbol:
+                raise RuntimeError("Invalid Binance position snapshot")
+            if symbol in out or p.get("positionSide", "BOTH") != "BOTH":
+                raise RuntimeError("Hedge-mode position present; one-way mode required")
+            if "positionAmt" not in p:          # R5 audit: a row without a quantity is unknown, never flat
+                raise RuntimeError("Invalid Binance position quantity")
+            amt = Decimal(str(p["positionAmt"]))
+            if not amt.is_finite():
+                raise RuntimeError("Invalid Binance position quantity")
+            out[symbol] = VenuePosition(
+                venue="binance", symbol=symbol, qty=amt, entry_price=Decimal(str(p.get("entryPrice", "0"))),
+                mark_price=Decimal(str(p.get("markPrice", "0"))),
+                liquidation_price=Decimal(str(p.get("liquidationPrice", "0"))),
+                unrealized_pnl=Decimal(str(p.get("unRealizedProfit", "0"))),
+                leverage=int(p.get("leverage", "1")), margin_type=p.get("marginType", "").lower(), ts_ms=now)
+        return out
 
     def get_open_orders(self, symbol: str = "", *, strict: bool = True) -> tuple[OpenOrder, ...]:
         params: dict[str, Any] = {"symbol": symbol} if symbol else {}
@@ -496,6 +512,20 @@ class BinanceAdapter:
                  "taker_buy_volume": float(k[9]), "taker_buy_quote_volume": float(k[10]), "confirm": True}
                 for t, k in sorted(rows.items())]
         return bars[-limit:]
+
+    def get_funding_intervals(self) -> dict[str, int]:
+        """Every listed symbol's funding interval in hours (``GET /fapi/v1/fundingInfo``, IP weight 0, sharing the
+        500 per 5 minutes of ``fundingRate``). A row whose interval is not a whole number of hours dividing a day is
+        left out: that symbol's interval is unknown and it takes no entries (plan R4)."""
+        data = self._client.request_public(method="GET", path="/fapi/v1/fundingInfo", params={})
+        out: dict[str, int] = {}
+        for row in data if isinstance(data, list) else ():
+            if not isinstance(row, dict) or not isinstance(row.get("symbol"), str):
+                continue
+            hours = row.get("fundingIntervalHours")
+            if type(hours) is int and 0 < hours <= 24 and 24 % hours == 0:
+                out[row["symbol"]] = hours
+        return out
 
     def get_funding_history(self, symbol: str, *, limit: int = 1000) -> list[tuple[int, float]]:
         """Settled funding events (time ms, rate), oldest first, up to ``limit`` (paginated)."""

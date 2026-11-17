@@ -1,0 +1,156 @@
+[
+ [
+  "per-symbol says cross-sectional",
+  "trading/domain/strategy/base.py",
+  "    name = \"per_symbol\"\n    cross_sectional = False",
+  "    name = \"per_symbol\"\n    cross_sectional = True",
+  "tests/unit/trading/test_decide_together.py"
+ ],
+ [
+  "given target ignored",
+  "trading/application/session.py",
+  "weight, ready = target if target is not None else self._target()",
+  "weight, ready = self._target()",
+  "tests/unit/trading/test_decide_together.py"
+ ],
+ [
+  "window sees later funding",
+  "trading/application/session.py",
+  "self.funding_series(self.bars[-1].available_at))\n\n    def _target",
+  "self.funding_series(None))\n\n    def _target",
+  "tests/unit/trading/test_decide_together.py"
+ ],
+ [
+  "never together",
+  "trading/application/market_poller.py",
+  "        if not any(strategy.cross_sectional for strategy in strategies.values()):\n            return None",
+  "        if True:\n            return None",
+  "tests/unit/trading/test_decide_together.py tests/characterization/test_decide_together_runtime.py"
+ ],
+ [
+  "mixed strategies allowed",
+  "trading/application/market_poller.py",
+  "        if len(strategies) != 1:\n            raise ValueError",
+  "        if len(strategies) > 2:\n            raise ValueError",
+  "tests/unit/trading/test_decide_together.py"
+ ],
+ [
+  "execution also decides alone",
+  "trading/application/market_poller.py",
+  "live=together is None and k == len(new) - 1",
+  "live=k == len(new) - 1",
+  "tests/unit/trading/test_decide_together.py"
+ ],
+ [
+  "decide without a new bar",
+  "trading/application/market_poller.py",
+  "        if together is not None and processed:\n",
+  "        if together is not None:\n",
+  "tests/unit/trading/test_decide_together.py"
+ ],
+ [
+  "no behind report",
+  "trading/application/market_poller.py",
+  "        if together is not None:\n            self._report_behind(together, self.decision_ms())",
+  "        if together is not None:\n            pass",
+  "tests/unit/trading/test_decide_together.py"
+ ],
+ [
+  "decide while behind",
+  "trading/application/market_poller.py",
+  "        if len({session.cursor for session in self.sessions.values()}) != 1:\n            return\n        try:",
+  "        if len({session.cursor for session in self.sessions.values()}) > 3:\n            return\n        try:",
+  "tests/unit/trading/test_decide_together.py"
+ ],
+ [
+  "failing strategy blocks nobody",
+  "trading/application/market_poller.py",
+  "            for symbol, session in self.sessions.items():\n                self._decision_failed(symbol, session, exc)\n            return",
+  "            return",
+  "tests/unit/trading/test_decide_together.py"
+ ],
+ [
+  "paper swallows failing strategy",
+  "trading/application/market_poller.py",
+  "            if not self.policy.isolate_failures:\n                raise                               # paper must not diverge from research silently\n            for symbol, session in self.sessions.items():",
+  "            if False:\n                raise\n            for symbol, session in self.sessions.items():",
+  "tests/unit/trading/test_decide_together.py"
+ ],
+ [
+  "target not passed",
+  "trading/application/market_poller.py",
+  "target=targets[symbol])",
+  "target=None)",
+  "tests/unit/trading/test_decide_together.py"
+ ],
+ [
+  "report at the limit",
+  "trading/application/market_poller.py",
+  "<= MAX_ENTRY_DELAY_MS:",
+  "< MAX_ENTRY_DELAY_MS:",
+  "tests/unit/trading/test_decide_together.py"
+ ],
+ [
+  "report every poll",
+  "trading/application/market_poller.py",
+  "or self.behind_at == lead.cursor:",
+  "or False:",
+  "tests/unit/trading/test_decide_together.py"
+ ],
+ [
+  "behind_at not kept",
+  "trading/application/market_poller.py",
+  "        self.behind_at = lead.cursor\n",
+  "        pass\n",
+  "tests/unit/trading/test_decide_together.py"
+ ],
+ [
+  "paper swallows behind",
+  "trading/application/market_poller.py",
+  "            if not self.policy.isolate_failures:\n                raise RuntimeError(text)",
+  "            if False:\n                raise RuntimeError(text)",
+  "tests/unit/trading/test_decide_together.py"
+ ],
+ [
+  "lead is the laggard",
+  "trading/application/market_poller.py",
+  "lead = max(self.sessions.values()",
+  "lead = min(self.sessions.values()",
+  "tests/unit/trading/test_decide_together.py"
+ ],
+ [
+  "paper decides alone",
+  "trading/application/market_poller.py",
+  "        together = self.together()\n        if together is None:\n            for symbol, bar in group:",
+  "        together = self.together()\n        if True:\n            for symbol, bar in group:",
+  "tests/unit/trading/test_decide_together.py tests/characterization/test_decide_together_runtime.py"
+ ],
+ [
+  "paper retries only the group",
+  "trading/application/market_poller.py",
+  "for symbol in (s for s, _ in group) if together is None else self.sessions:",
+  "for symbol in (s for s, _ in group):",
+  "tests/unit/trading/test_decide_together.py"
+ ],
+ [
+  "block written every time",
+  "trading/application/market_poller.py",
+  "        if self.decision_errors.get(symbol) != issue:\n            write_issue",
+  "        if True:\n            write_issue",
+  "tests/unit/trading/test_decide_together.py"
+ ],
+ [
+  "behind not blocked",
+  "trading/application/market_poller.py",
+  "            self._block(symbol, self.sessions[symbol], Issue(K.DECISION_FAILED, symbol, text), traceback=False)",
+  "            pass",
+  "tests/unit/trading/test_decide_together.py"
+ ],
+ [
+  "together clears on advance",
+  "trading/application/market_poller.py",
+  "                    if together is None:\n                        self.decision_errors.pop(symbol, None)",
+  "                    if True:\n                        self.decision_errors.pop(symbol, None)",
+  "tests/unit/trading/test_decide_together.py"
+ ]
+]

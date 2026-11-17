@@ -173,6 +173,11 @@ class SimulatedExchange:
         return VenuePosition(venue=VENUE, symbol=symbol, qty=broker.position.qty,
                              entry_price=broker.position.entry_price, mark_price=broker.mark)
 
+    def get_position_snapshot(self) -> dict[str, VenuePosition]:
+        """Every symbol's position in one answer, flat included, as the Binance adapter gives it (plan R5)."""
+        return {name: VenuePosition(venue=VENUE, symbol=name, qty=b.position.qty, entry_price=b.position.entry_price,
+                                    mark_price=b.mark) for name, b in self._selected("")}
+
     def get_open_orders(self, symbol: str = "", *, strict: bool = True) -> tuple[OpenOrder, ...]:
         out = []
         for name, broker in self._selected(symbol):

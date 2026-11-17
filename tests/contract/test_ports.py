@@ -82,6 +82,9 @@ def test_signature_check_catches_a_missing_parameter():
         def get_funding_history(self, symbol, *, limit=1000):
             return []
 
+        def get_funding_intervals(self):
+            return {}
+
     assert missing_members(Partial(), ports.MarketData) == ["get_klines(now_ms)"]
 
 
@@ -97,6 +100,7 @@ class _Down:
 @pytest.mark.parametrize("call", [
     lambda a: a.get_klines("BTCUSDT", "60", 5, now_ms=1_800_000_000_000),
     lambda a: a.get_funding_history("BTCUSDT", limit=3),
+    lambda a: a.get_funding_intervals(),
     lambda a: a.get_account_equity(),
     lambda a: a.get_positions("BTCUSDT", strict=True),
     lambda a: a.get_open_orders("BTCUSDT", strict=True),

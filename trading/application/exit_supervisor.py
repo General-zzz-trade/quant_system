@@ -8,7 +8,7 @@ other symbol's, nor the next cycle. Moved from runtime.py without changes in beh
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from decimal import Decimal
 from typing import Any
 
@@ -16,7 +16,7 @@ from trading.application.alerts import ALERT_AFTER_SECONDS, IssueAlerts
 from trading.application.equity import EquitySource
 from trading.application.issues import Issue, with_effect, write_issue
 from trading.application.ports import (Clock, DrawdownGuard, EntryPauses, EventLog, ExchangeAccount, KillSwitch,
-                                       Notifier)
+                                       Notifier, PositionView)
 from trading.application.risk.loss_stop import StrategyLossStop
 from trading.application.session import TargetSession
 from trading.domain.events import EventKind
@@ -56,6 +56,7 @@ class ExitSupervisor:
         self._exit_observer = exit_observer
         self._risk_exits: dict[str, tuple[str, str] | None] = {}
         self.account_findings: list[Issue] = []
+        self.snapshot_issue: Issue | None = None       # the last failed read of every position (R5 audit)
         self.loss_stop = loss_stop                  # owner 2026-11-16; None without a strategy capital
         self.loss_findings: list[Issue] = []
         self.last_account_check = clock()
@@ -117,7 +118,8 @@ class ExitSupervisor:
         for symbol, session in self.sessions.items():
             issues = self.last_issues.get(symbol, [])
             inputs = StateInputs(
-                warmed=warmed and session.cursor is not None and len(session.bars) >= self.spec.window_hours(),
+                warmed=(warmed and session.cursor is not None
+                        and len(session.bars) >= session.strategy.window_hours()),
                 flattening=(closing or bool(with_effect(issues, Effect.FLATTEN_SYMBOL))) and self._holds(session),
                 halted=halted, paused=self.pause_status(symbol) is not None,
                 blocked=equity_unknown or bool(with_effect(issues, Effect.BLOCK_SYMBOL_ENTRIES) or
@@ -187,11 +189,23 @@ class ExitSupervisor:
         refused_text = self._market_refused()
         cycle_errors = self._cycle_errors() + self.account_findings + self.loss_findings    # runtime-wide
         found_of: dict[str, list[Issue]] = {}
+        # Plan R5: every symbol's fills and order states first, then the account's positions in one read for all of
+        # them (weight 5 instead of 5 per symbol, twice), then each symbol's reconciliation and stop upkeep.
+        failed: dict[str, Exception] = {}
         for symbol, session in self.sessions.items():
             try:
                 session.consume_fills()
                 session.executor.notify_status()
-                issues = session.executor.reconcile_account(symbol) + session.stops.sync()
+            except Exception as exc:
+                failed[symbol] = exc
+        positions = self._position_snapshot()
+        if self.snapshot_issue is not None:
+            cycle_errors = cycle_errors + [self.snapshot_issue]
+        for symbol, session in self.sessions.items():
+            try:
+                if symbol in failed:
+                    raise failed[symbol]
+                issues = session.executor.reconcile_account(symbol, positions) + session.stops.sync(positions)
             except Exception as exc:
                 issues = [Issue(K.RECONCILE_FAILED, symbol, f"reconciliation failed: {type(exc).__name__}: {exc}")]
                 logger.exception("%s reconciliation failed; entries blocked", symbol)
@@ -219,6 +233,26 @@ class ExitSupervisor:
         if self.issue_alerts is not None:
             self.issue_alerts.observe("runtime", cycle_errors)
         self.last_reconcile = self.clock()
+
+    def _position_snapshot(self) -> Mapping[str, PositionView] | None:
+        """The account's positions for this reconciliation (plan R5). Unreadable, each symbol reads its own as before
+        R5 - and fails on its own if the account cannot be read at all."""
+        if self.account is None:
+            return None
+        try:
+            positions = self.account.get_position_snapshot()
+        except Exception as exc:
+            # R5 audit: not silent. Each symbol then reads its own (exits go on), at five times the request weight
+            # of the snapshot per symbol, so every entry is blocked and a person is told when it lasts.
+            issue = Issue(K.POSITIONS_UNREAD, None, "account positions not read in one request "
+                          f"({type(exc).__name__}: {exc}); each symbol reads its own; entries blocked")
+            if issue != self.snapshot_issue:
+                write_issue(self.journal, None, issue)
+                logger.error("%s", issue)
+            self.snapshot_issue = issue
+            return None
+        self.snapshot_issue = None
+        return positions
 
     def _block(self, session: TargetSession, issues: list[Issue]) -> None:
         """Entry blocks from the ADR-0014 table; reductions are never blocked."""

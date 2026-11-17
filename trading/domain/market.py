@@ -39,7 +39,25 @@ class BarLike(Protocol):
     def volume(self) -> Decimal: ...
 
 
-def frame_from_bars(bars: Sequence[BarLike]) -> pd.DataFrame:
+KLINE_FIELDS = ("quote_volume", "trades", "taker_buy_volume", "taker_buy_quote_volume")   # as in the lab snapshots
+
+
+def frame_from_bars(bars: Sequence[BarLike], *, extras: bool = False) -> pd.DataFrame:
+    """OHLCV and ``available_at``; with ``extras`` also the kline fields of ``KLINE_FIELDS`` from each bar's
+    ``extras`` (NaN for a bar without them: unknown, never 0)."""
+    frame = _ohlcv(bars)
+    if extras:
+        for name in KLINE_FIELDS:
+            frame[name] = np.fromiter((_extra(b, name) for b in bars), dtype=float, count=len(bars))
+    return frame
+
+
+def _extra(bar: object, name: str) -> float:
+    more = getattr(bar, "extras", None)
+    return float(more[name]) if more and name in more else float("nan")
+
+
+def _ohlcv(bars: Sequence[BarLike]) -> pd.DataFrame:
     return pd.DataFrame({
         "open_time": np.fromiter((b.open_time for b in bars), dtype=np.int64, count=len(bars)),
         "open": np.fromiter((float(b.open) for b in bars), dtype=float, count=len(bars)),

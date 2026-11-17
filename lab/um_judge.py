@@ -23,11 +23,13 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from typing import Any
 from dataclasses import asdict, dataclass
 from decimal import Decimal as D
 from multiprocessing import get_context
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from lab import um_lab as lab
@@ -233,14 +235,17 @@ def survives(result: dict, hold: dict) -> bool:
 
 
 def final_checks(*, holdout: dict, holdout_hold: dict, round_trips: int, doubled: dict, walk_forward_hold: dict,
-                 selection_sharpe: Mapping[str, float], lookahead: Sequence[str] | None) -> dict:
+                 selection_sharpe: Mapping[str, float], lookahead: Sequence[str] | None,
+                 runs_as_judged: bool = True) -> dict:
     """The final check of a survivor (ideas.md): it still wins on the holdout, at least 50 round trips in the
     walk-forward, it still wins there with fees and slippage doubled, every configuration of the idea has a
-    Sharpe above 0 on the selection periods, and the look-ahead check found nothing (not run counts as failed)."""
+    Sharpe above 0 on the selection periods, the look-ahead check found nothing (not run counts as failed), and the
+    runtime can run it as it was judged: every symbol it reads besides is in the list it trades (R7 audit F9: the
+    runtime has no read-only symbols, so a strategy that read BTCUSDT outside the list was judged as no spec)."""
     return {"unseen_data": survives(holdout, holdout_hold), "at_least_50_trades": round_trips >= 50,
             "double_fees": survives(doubled, walk_forward_hold),
             "neighbouring_settings": all(v > 0 for v in selection_sharpe.values()),
-            "no_lookahead": lookahead is not None and not lookahead}
+            "no_lookahead": lookahead is not None and not lookahead, "runs_as_judged": runs_as_judged}
 
 
 Job = tuple[Config, tuple[int, ...]]                             # a configuration and the periods to replay
@@ -254,12 +259,15 @@ def _work(job: Job) -> dict:
 
 @dataclass(frozen=True)
 class Judge:
-    """One run's settings. ``ideas``: name -> (function, parameter grid) as lab.um_lab.Idea; ``lists``: one symbol
-    list per period (``universe``); ``terms`` gives the capital and the pilot's limits, the stop is each
-    configuration's ``StopVariant``. ``cross_sectional`` ideas read the period's list (``ctx["universe"]``).
-    ``note`` goes into every registry row. ``legacy_days``: see ``period_daily``. ``lookahead``: the run's check of
-    one idea and parameter set with lab/causality.py, returning the violations (``final`` fails without it)."""
-    ideas: Mapping[str, tuple[Callable, list[dict]]]
+    """One run's settings. ``ideas``: name -> (factory, parameter grid); a factory turns a parameter set into the
+    strategy the judge replays through the shared interface (plan R7c): ``lab.um_lab.lab_ideas()`` for the
+    registered ideas the runtime can run, ``lab.um_lab.legacy(function)`` for an idea still written as a research
+    function. ``lists``: one symbol list per period (``universe``); a cross-sectional strategy is given the period's
+    list, a per-symbol one each symbol, and both the symbols they read besides (``references``). ``terms`` gives the
+    capital and the pilot's limits, the stop is each configuration's ``StopVariant``. ``note`` goes into every
+    registry row. ``legacy_days``: see ``period_daily``. ``lookahead``: the run's check of one idea and parameter set
+    with lab/causality.py, returning the violations (``final`` fails without it)."""
+    ideas: Mapping[str, tuple[Callable[[dict], Any], list[dict]]]
     lists: Sequence[Sequence[str]]
     cache: Path
     run_date: str
@@ -267,10 +275,12 @@ class Judge:
     terms: lab.LiveTerms = lab.LIVE
     slots: int = 10
     periods: tuple[tuple[int, int], ...] = PERIODS
-    cross_sectional: frozenset = frozenset()
     trials: Path = lab.TRIALS
     note: str = ""
     legacy_days: bool = False
+    # R7 audit F2: no position before the strategy's window is full - the runtime cannot take one (it refuses to start
+    # below window_hours bars). False only for reproducing the first run's numbers.
+    ready_only: bool = True
     lookahead: Callable[[str, dict], list[str]] | None = None
 
     def __post_init__(self) -> None:
@@ -305,18 +315,18 @@ class Judge:
         trips, the entry orders (time, notional), the exchange stops and the number of fills. Every period starts
         flat: each listed contract is replayed from ``slot_capital``, whatever the period before left."""
         config, wanted = job
-        fn = self.ideas[config.idea][0]
-        btc, slot, out, weights = lab.frame(BTC, self.snapshot), self.slot_capital, {}, {}
+        strategy = self.ideas[config.idea][0](config.params)
+        slot, out, weights = self.slot_capital, {}, {}
         for k in wanted:
             start, end = self.periods[k]
             symbols, curves, trips, entries, stops, fills = list(self.lists[k]), [], [], [], 0, 0
             for symbol in symbols:
                 df = lab.frame(symbol, self.snapshot)
-                key = (symbol, tuple(symbols) if config.idea in self.cross_sectional else None)
-                if key not in weights:
-                    ctx = {"params": config.params, "btc": btc, "symbol": symbol, "universe": symbols}
-                    weights[key] = fn(df, ctx).reindex(df.index).fillna(0.0)
-                w = weights[key]
+                given = tuple(symbols) if strategy.cross_sectional else (symbol,)
+                if (symbol, given) not in weights:
+                    for traded, target in self._targets(strategy, given).items():
+                        weights[(traded, given)] = target
+                w = weights[(symbol, given)].reindex(df.index).fillna(0.0)
                 if not (w[(w.index >= start - H) & (w.index < end)] != 0).any():
                     continue
                 r = lab.replay(symbol, w, cost_multiplier=config.cost, start=start, end=end, snapshot=self.snapshot,
@@ -333,12 +343,25 @@ class Judge:
                       "fills": fills}
         return {"config": config, "periods": out}
 
+    def _targets(self, strategy: Any, traded: Sequence[str]) -> dict[str, pd.Series]:
+        """The strategy's target at every close of the snapshot for ``traded``, by bar open time, from the windows of
+        those symbols and of the ones it reads besides (R7c: the code the runtime runs)."""
+        read = list(traded) + [s for s in strategy.references() if s not in traded]
+        history = strategy.history({s: lab.snapshot_window(s, self.snapshot) for s in read})
+        out = {}
+        for s in traded:
+            target = history[s]["target"].to_numpy(dtype=float)
+            if self.ready_only:
+                target = np.where(history[s]["ready"].to_numpy(dtype=bool), target, 0.0)
+            out[s] = pd.Series(target, index=history[s]["available_at"].to_numpy(dtype="int64") - H)
+        return out
+
     # -- cache and registry --------------------------------------------------------------------------------
     def _settings(self) -> dict:
         """What a cached result depends on besides its configuration."""
         return {"snapshot": self.snapshot.name, "capital": self.terms.capital, "slots": self.slots,
                 "periods": [list(p) for p in self.periods], "lists": [list(symbols) for symbols in self.lists],
-                "legacy_days": self.legacy_days}
+                "legacy_days": self.legacy_days, "ready_only": self.ready_only}
 
     def _path(self, config: Config) -> Path:
         tag = "_".join(f"{k}{v}" for k, v in sorted(config.params.items()))
@@ -503,10 +526,12 @@ class Judge:
             doubled = lab.summary(_stitch([self.load(config(name, label, 2))[k]
                                            for k, label in zip(self.folds, row["chosen_per_fold"])])["daily"])
             found = self.lookahead(name, choice.params) if self.lookahead else None
+            reads = set(self.ideas[name][0](choice.params).references())
             checks = final_checks(
                 holdout=lab.summary(unseen["daily"]), holdout_hold=hold["holdout_btc"], round_trips=row["round_trips"],
                 doubled=doubled, walk_forward_hold=screened["buy_and_hold_btc"],
-                selection_sharpe=row["selection_sharpe"], lookahead=found)
+                selection_sharpe=row["selection_sharpe"], lookahead=found,
+                runs_as_judged=all(reads <= set(symbols) for symbols in self.lists))
             out[name] = {"final_choice": row["final_choice"], "holdout": lab.summary(unseen["daily"]),
                          "holdout_regime": lab.by_regime(unseen["daily"], btc),
                          "holdout_round_trips": len(unseen["trips"]), "holdout_exchange_stops": unseen["stops"],

@@ -19,18 +19,18 @@ from trading.application.execution.fills import TargetFillConsumer
 from trading.application.runtime import POLL_SECONDS
 from trading.application.session import MAX_ENTRY_DELAY_MS, TargetSession
 from trading.domain.events import EventKind
-from trading.domain.strategy.overlay import StrategySpec
+from trading.domain.strategy.spec import parse_spec
 from trading.infrastructure.cli import target as _cli
 from trading.infrastructure.config import RuntimeConfig
 from trading.infrastructure.paper import PAPER_STATE
 
 
 def load_spec(path: Path) -> dict:
+    """The signed spec document, schema 1 (the BTC/ETH overlay) or 2 (R2: a named strategy, up to 10 symbols);
+    ``parse_spec`` checks every field and refuses what it cannot use."""
     from infra.model_signing import load_verified_json
     spec = load_verified_json(path)
-    if spec.get("kind") != "btc_eth_multitimeframe_target" or spec.get("schema") != 1:
-        raise ValueError("not a frozen BTC/ETH target-strategy spec")
-    StrategySpec.from_record(spec["spec"])  # validates parameters
+    parse_spec(spec)
     return spec
 
 
