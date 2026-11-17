@@ -4781,7 +4781,7 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
       版本 1 现在会被拒绝并提示迁移，另有测试；
     - 表名清单 `TABLES` 加 `funding_rows`、`funding_coverage`。
 - **新增测试**：
-  - `tests/unit/trading/test_funding_store.py` 12 个：版本和迁移；存储；首读和以后的窗口；几个月后总数仍完整；断档；重启；够不到首笔成交；不给存储时不变。
+  - `tests/unit/trading/test_funding_store.py` 12 个（变异自检后 13 个）：版本和迁移；存储；首读和以后的窗口；几个月后总数仍完整；断档；重启；够不到首笔成交；不给存储时不变。
   - `tests/characterization/test_state_migrate.py` 5 个：启动拒绝并提示；迁移；运行时占着目录时拒绝；有别的问题或换了范围时拒绝；旧版本备份恢复。
   - `test_strategy_capital_sizing.py` 加 1 个：运行时把资金费行存进状态库。
   - `test_funding_income.py` 加 1 个：读到的行。
@@ -4791,4 +4791,9 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
   ruff（全仓库）、`mypy trading/`（97 个文件）、`lint-imports`、离线安全检查通过。
 - **主机上要做的**：试运行用的 `/var/lib/quant/state/mainnet` 是 2026-11-16 用第 1 版初始化的，启动前要运行一次 `state_dir migrate`（运行时停着）。
   这一步改的是实盘状态目录，由技术负责人做，或者经技术负责人同意后由我做。
-- **变异自检和审计**：见下面补充。
+- **变异自检**【实际运行结果】：`scripts/dev/mutants/funding_store.json` 17 个。第一轮 14 个被杀，存活 3 个，都是测试缺口：
+  - "版本 1 的库也报丢了表"：原测试只查有没有版本提示，没查是不是唯一的问题；现在查唯一。
+  - "存着的行晚于首笔成交时不重读"：补了 `test_kept_rows_that_start_after_the_first_fill_are_read_again_from_the_first_fill`。
+  - "迁移不更新清单的版本号"：测试造的旧目录，清单原来就写着 2；现在写 1，和版本 1 初始化时一样。
+  - 单独重跑，这 3 个都被杀。最终 17/17。资金费存储测试现在 13 个。
+- **审计**：合并前由独立审计员审。
