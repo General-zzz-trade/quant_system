@@ -1,0 +1,22 @@
+{
+ "what": "deflated Sharpe probability of the walk-forward daily returns against all 1092 configurations of this run (lab/metrics.deflated_sharpe_probability_k)",
+ "code_commit": "99169f28e62b608072b9ec952017654808ef10f2",
+ "n_trials": 1092,
+ "selection_sharpe_std": 0.45289014147459145,
+ "E3_vol_target_trend": {
+  "walk_forward_sharpe": 0.6233946959241355,
+  "deflated_probability": 0.026688045277176987
+ },
+ "D2_taker_imbalance": {
+  "walk_forward_sharpe": 0.7714470400277164,
+  "deflated_probability": 0.014433415012665507
+ },
+ "F1_btc_trend_beta": {
+  "walk_forward_sharpe": 0.580577813154429,
+  "deflated_probability": 0.021795911188395037
+ },
+ "C5_trend_not_crowded": {
+  "walk_forward_sharpe": 0.4676905733039444,
+  "deflated_probability": 0.010887107933256104
+ }
+}
