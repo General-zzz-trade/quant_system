@@ -49,7 +49,8 @@ def test_legacy_configuration_is_unchanged():
     assert {"isolated_leverage", "maintenance_margin_rate", "stop_slippage_bps"} <= set(config().record())
 
 
-@pytest.mark.parametrize("kwargs", [{"max_exposure": "3.1"}, {"isolated_leverage": "2", "max_exposure": "3"},
+@pytest.mark.parametrize("kwargs", [{"isolated_leverage": "20", "max_exposure": "10.1"},
+                                    {"isolated_leverage": "2", "max_exposure": "3"},
                                     {"isolated_leverage": "21"}, {"maintenance_margin_rate": "0.1"},
                                     {"stop_slippage_bps": "-1"}])
 def test_invalid_isolated_configuration_is_rejected(kwargs):

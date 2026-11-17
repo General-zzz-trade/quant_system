@@ -1,0 +1,2365 @@
+{
+ "spec": {
+  "lookbacks": [
+   10,
+   20,
+   30,
+   60,
+   90,
+   120,
+   180
+  ],
+  "signal": "sign",
+  "long_only": true,
+  "vol_lookback": 30,
+  "target_vol": 0.3,
+  "max_weight": 0.9,
+  "funding_filter": false,
+  "vol_spike_cut": false,
+  "confirm_4h": false,
+  "band": 0.1,
+  "execution": "market",
+  "ttl_bars": 1
+ },
+ "capital_usdt": 150.0,
+ "window": "2021-01-10..2025-11-16 (development only)",
+ "rules": {
+  "BTCUSDT": {
+   "step": "0.001",
+   "min_qty": "0.001",
+   "min_notional": "50"
+  },
+  "ETHUSDT": {
+   "step": "0.001",
+   "min_qty": "0.001",
+   "min_notional": "20"
+  }
+ },
+ "runs": {
+  "2x 10x/0.045 none x1": {
+   "stats": {
+    "final_usdt": 254.11,
+    "total_return": 0.6941,
+    "cagr": 0.1148,
+    "sharpe": 0.533,
+    "max_drawdown": 0.2685,
+    "worst_day": -0.1234,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.029,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.0,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.0,
+    "exposure_mean": 0.305,
+    "exposure_max": 1.53,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 180,
+     "stops": 17,
+     "liquidations": 0,
+     "entries": 86
+    },
+    "ETHUSDT": {
+     "fills": 360,
+     "stops": 57,
+     "liquidations": 0,
+     "entries": 164
+    },
+    "latch_trips": 0
+   }
+  },
+  "2x 10x/0.045 3/12 x1": {
+   "stats": {
+    "final_usdt": 281.72,
+    "total_return": 0.8781,
+    "cagr": 0.1387,
+    "sharpe": 0.626,
+    "max_drawdown": 0.255,
+    "worst_day": -0.083,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.027,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.0,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.0,
+    "exposure_mean": 0.294,
+    "exposure_max": 1.623,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 224,
+     "stops": 17,
+     "liquidations": 0,
+     "entries": 109
+    },
+    "ETHUSDT": {
+     "fills": 480,
+     "stops": 88,
+     "liquidations": 0,
+     "entries": 234
+    },
+    "latch_trips": 58
+   }
+  },
+  "2x 10x/0.045 5/12 x1": {
+   "stats": {
+    "final_usdt": 254.04,
+    "total_return": 0.6936,
+    "cagr": 0.1147,
+    "sharpe": 0.541,
+    "max_drawdown": 0.2344,
+    "worst_day": -0.103,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.025,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.0,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.0,
+    "exposure_mean": 0.299,
+    "exposure_max": 1.592,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 182,
+     "stops": 18,
+     "liquidations": 0,
+     "entries": 87
+    },
+    "ETHUSDT": {
+     "fills": 396,
+     "stops": 72,
+     "liquidations": 0,
+     "entries": 184
+    },
+    "latch_trips": 17
+   }
+  },
+  "2x 10x/0.045 10/25 x1": {
+   "stats": {
+    "final_usdt": 254.17,
+    "total_return": 0.6945,
+    "cagr": 0.1148,
+    "sharpe": 0.529,
+    "max_drawdown": 0.2617,
+    "worst_day": -0.1234,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.033,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.0,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.0,
+    "exposure_mean": 0.308,
+    "exposure_max": 1.53,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 179,
+     "stops": 15,
+     "liquidations": 0,
+     "entries": 86
+    },
+    "ETHUSDT": {
+     "fills": 364,
+     "stops": 58,
+     "liquidations": 0,
+     "entries": 168
+    },
+    "latch_trips": 3
+   }
+  },
+  "2x 10x/0.045 none x2": {
+   "stats": {
+    "final_usdt": 248.17,
+    "total_return": 0.6545,
+    "cagr": 0.1093,
+    "sharpe": 0.521,
+    "max_drawdown": 0.2726,
+    "worst_day": -0.1265,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.027,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.0,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.0,
+    "exposure_mean": 0.3,
+    "exposure_max": 1.542,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 180,
+     "stops": 16,
+     "liquidations": 0,
+     "entries": 85
+    },
+    "ETHUSDT": {
+     "fills": 338,
+     "stops": 54,
+     "liquidations": 0,
+     "entries": 151
+    },
+    "latch_trips": 0
+   }
+  },
+  "2x 15x/0.03 none x1": {
+   "stats": {
+    "final_usdt": 285.8,
+    "total_return": 0.9053,
+    "cagr": 0.1421,
+    "sharpe": 0.619,
+    "max_drawdown": 0.271,
+    "worst_day": -0.1193,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.035,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.0,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.0,
+    "exposure_mean": 0.307,
+    "exposure_max": 1.555,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 218,
+     "stops": 34,
+     "liquidations": 0,
+     "entries": 104
+    },
+    "ETHUSDT": {
+     "fills": 411,
+     "stops": 80,
+     "liquidations": 0,
+     "entries": 195
+    },
+    "latch_trips": 0
+   }
+  },
+  "2x 15x/0.03 3/12 x1": {
+   "stats": {
+    "final_usdt": 212.1,
+    "total_return": 0.414,
+    "cagr": 0.074,
+    "sharpe": 0.408,
+    "max_drawdown": 0.315,
+    "worst_day": -0.1223,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.037,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.0,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.0,
+    "exposure_mean": 0.259,
+    "exposure_max": 1.515,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 210,
+     "stops": 29,
+     "liquidations": 0,
+     "entries": 102
+    },
+    "ETHUSDT": {
+     "fills": 553,
+     "stops": 135,
+     "liquidations": 0,
+     "entries": 271
+    },
+    "latch_trips": 55
+   }
+  },
+  "2x 15x/0.03 5/12 x1": {
+   "stats": {
+    "final_usdt": 210.24,
+    "total_return": 0.4016,
+    "cagr": 0.0721,
+    "sharpe": 0.398,
+    "max_drawdown": 0.2591,
+    "worst_day": -0.0885,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.029,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.0,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.0,
+    "exposure_mean": 0.272,
+    "exposure_max": 1.462,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 186,
+     "stops": 33,
+     "liquidations": 0,
+     "entries": 87
+    },
+    "ETHUSDT": {
+     "fills": 431,
+     "stops": 104,
+     "liquidations": 0,
+     "entries": 201
+    },
+    "latch_trips": 14
+   }
+  },
+  "2x 15x/0.03 10/25 x1": {
+   "stats": {
+    "final_usdt": 281.41,
+    "total_return": 0.876,
+    "cagr": 0.1385,
+    "sharpe": 0.607,
+    "max_drawdown": 0.2712,
+    "worst_day": -0.1098,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.03,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.0,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.0,
+    "exposure_mean": 0.306,
+    "exposure_max": 1.562,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 210,
+     "stops": 33,
+     "liquidations": 0,
+     "entries": 100
+    },
+    "ETHUSDT": {
+     "fills": 406,
+     "stops": 83,
+     "liquidations": 0,
+     "entries": 192
+    },
+    "latch_trips": 3
+   }
+  },
+  "2x 15x/0.03 none x2": {
+   "stats": {
+    "final_usdt": 217.53,
+    "total_return": 0.4502,
+    "cagr": 0.0796,
+    "sharpe": 0.423,
+    "max_drawdown": 0.306,
+    "worst_day": -0.1219,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.043,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.0,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.0,
+    "exposure_mean": 0.27,
+    "exposure_max": 1.508,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 158,
+     "stops": 28,
+     "liquidations": 0,
+     "entries": 74
+    },
+    "ETHUSDT": {
+     "fills": 385,
+     "stops": 78,
+     "liquidations": 0,
+     "entries": 180
+    },
+    "latch_trips": 0
+   }
+  },
+  "2x 20x/0.0225 none x1": {
+   "stats": {
+    "final_usdt": 281.65,
+    "total_return": 0.8777,
+    "cagr": 0.1387,
+    "sharpe": 0.615,
+    "max_drawdown": 0.2916,
+    "worst_day": -0.107,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.028,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.0,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.0,
+    "exposure_mean": 0.303,
+    "exposure_max": 1.549,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 243,
+     "stops": 47,
+     "liquidations": 0,
+     "entries": 118
+    },
+    "ETHUSDT": {
+     "fills": 455,
+     "stops": 114,
+     "liquidations": 0,
+     "entries": 213
+    },
+    "latch_trips": 0
+   }
+  },
+  "2x 20x/0.0225 3/12 x1": {
+   "stats": {
+    "final_usdt": 196.15,
+    "total_return": 0.3077,
+    "cagr": 0.0568,
+    "sharpe": 0.347,
+    "max_drawdown": 0.3351,
+    "worst_day": -0.1137,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.036,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.0,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.0,
+    "exposure_mean": 0.255,
+    "exposure_max": 1.511,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 236,
+     "stops": 39,
+     "liquidations": 0,
+     "entries": 114
+    },
+    "ETHUSDT": {
+     "fills": 634,
+     "stops": 187,
+     "liquidations": 0,
+     "entries": 308
+    },
+    "latch_trips": 56
+   }
+  },
+  "2x 20x/0.0225 5/12 x1": {
+   "stats": {
+    "final_usdt": 220.84,
+    "total_return": 0.4723,
+    "cagr": 0.083,
+    "sharpe": 0.434,
+    "max_drawdown": 0.2976,
+    "worst_day": -0.1065,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.029,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.0,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.0,
+    "exposure_mean": 0.29,
+    "exposure_max": 1.57,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 245,
+     "stops": 54,
+     "liquidations": 0,
+     "entries": 119
+    },
+    "ETHUSDT": {
+     "fills": 461,
+     "stops": 141,
+     "liquidations": 0,
+     "entries": 216
+    },
+    "latch_trips": 19
+   }
+  },
+  "2x 20x/0.0225 10/25 x1": {
+   "stats": {
+    "final_usdt": 261.0,
+    "total_return": 0.74,
+    "cagr": 0.1209,
+    "sharpe": 0.554,
+    "max_drawdown": 0.2921,
+    "worst_day": -0.1103,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.031,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.0,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.0,
+    "exposure_mean": 0.305,
+    "exposure_max": 1.551,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 247,
+     "stops": 44,
+     "liquidations": 0,
+     "entries": 120
+    },
+    "ETHUSDT": {
+     "fills": 477,
+     "stops": 125,
+     "liquidations": 0,
+     "entries": 225
+    },
+    "latch_trips": 2
+   }
+  },
+  "2x 20x/0.0225 none x2": {
+   "stats": {
+    "final_usdt": 253.49,
+    "total_return": 0.6899,
+    "cagr": 0.1142,
+    "sharpe": 0.532,
+    "max_drawdown": 0.3153,
+    "worst_day": -0.1105,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.045,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.0,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.0,
+    "exposure_mean": 0.304,
+    "exposure_max": 1.546,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 222,
+     "stops": 43,
+     "liquidations": 0,
+     "entries": 107
+    },
+    "ETHUSDT": {
+     "fills": 437,
+     "stops": 109,
+     "liquidations": 0,
+     "entries": 204
+    },
+    "latch_trips": 0
+   }
+  },
+  "3x 10x/0.045 none x1": {
+   "stats": {
+    "final_usdt": 234.15,
+    "total_return": 0.561,
+    "cagr": 0.0961,
+    "sharpe": 0.43,
+    "max_drawdown": 0.4993,
+    "worst_day": -0.1959,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.17,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.009,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.0,
+    "exposure_mean": 0.49,
+    "exposure_max": 2.488,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 235,
+     "stops": 32,
+     "liquidations": 0,
+     "entries": 116
+    },
+    "ETHUSDT": {
+     "fills": 430,
+     "stops": 65,
+     "liquidations": 0,
+     "entries": 203
+    },
+    "latch_trips": 0
+   }
+  },
+  "3x 10x/0.045 3/12 x1": {
+   "stats": {
+    "final_usdt": 223.73,
+    "total_return": 0.4915,
+    "cagr": 0.0859,
+    "sharpe": 0.401,
+    "max_drawdown": 0.479,
+    "worst_day": -0.1232,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.168,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.018,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.0,
+    "exposure_mean": 0.431,
+    "exposure_max": 2.555,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 359,
+     "stops": 26,
+     "liquidations": 0,
+     "entries": 181
+    },
+    "ETHUSDT": {
+     "fills": 779,
+     "stops": 107,
+     "liquidations": 0,
+     "entries": 420
+    },
+    "latch_trips": 163
+   }
+  },
+  "3x 10x/0.045 5/12 x1": {
+   "stats": {
+    "final_usdt": 178.27,
+    "total_return": 0.1884,
+    "cagr": 0.0362,
+    "sharpe": 0.296,
+    "max_drawdown": 0.4606,
+    "worst_day": -0.2097,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.171,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.015,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.0,
+    "exposure_mean": 0.455,
+    "exposure_max": 2.469,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 256,
+     "stops": 26,
+     "liquidations": 0,
+     "entries": 127
+    },
+    "ETHUSDT": {
+     "fills": 553,
+     "stops": 89,
+     "liquidations": 0,
+     "entries": 282
+    },
+    "latch_trips": 66
+   }
+  },
+  "3x 10x/0.045 10/25 x1": {
+   "stats": {
+    "final_usdt": 216.66,
+    "total_return": 0.4444,
+    "cagr": 0.0787,
+    "sharpe": 0.394,
+    "max_drawdown": 0.4344,
+    "worst_day": -0.1854,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.156,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.009,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.0,
+    "exposure_mean": 0.474,
+    "exposure_max": 2.398,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 228,
+     "stops": 28,
+     "liquidations": 0,
+     "entries": 111
+    },
+    "ETHUSDT": {
+     "fills": 455,
+     "stops": 71,
+     "liquidations": 0,
+     "entries": 221
+    },
+    "latch_trips": 11
+   }
+  },
+  "3x 10x/0.045 none x2": {
+   "stats": {
+    "final_usdt": 191.18,
+    "total_return": 0.2745,
+    "cagr": 0.0513,
+    "sharpe": 0.336,
+    "max_drawdown": 0.5304,
+    "worst_day": -0.1936,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.187,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.012,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.0,
+    "exposure_mean": 0.486,
+    "exposure_max": 2.499,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 246,
+     "stops": 33,
+     "liquidations": 0,
+     "entries": 119
+    },
+    "ETHUSDT": {
+     "fills": 417,
+     "stops": 65,
+     "liquidations": 0,
+     "entries": 195
+    },
+    "latch_trips": 0
+   }
+  },
+  "3x 15x/0.03 none x1": {
+   "stats": {
+    "final_usdt": 246.14,
+    "total_return": 0.6409,
+    "cagr": 0.1075,
+    "sharpe": 0.452,
+    "max_drawdown": 0.4943,
+    "worst_day": -0.2003,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.146,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.011,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.0,
+    "exposure_mean": 0.466,
+    "exposure_max": 2.447,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 229,
+     "stops": 44,
+     "liquidations": 0,
+     "entries": 111
+    },
+    "ETHUSDT": {
+     "fills": 572,
+     "stops": 111,
+     "liquidations": 0,
+     "entries": 282
+    },
+    "latch_trips": 0
+   }
+  },
+  "3x 15x/0.03 3/12 x1": {
+   "stats": {
+    "final_usdt": 245.87,
+    "total_return": 0.6391,
+    "cagr": 0.1072,
+    "sharpe": 0.449,
+    "max_drawdown": 0.5033,
+    "worst_day": -0.0923,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.181,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.009,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.0,
+    "exposure_mean": 0.435,
+    "exposure_max": 2.387,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 429,
+     "stops": 59,
+     "liquidations": 0,
+     "entries": 215
+    },
+    "ETHUSDT": {
+     "fills": 859,
+     "stops": 185,
+     "liquidations": 0,
+     "entries": 448
+    },
+    "latch_trips": 150
+   }
+  },
+  "3x 15x/0.03 5/12 x1": {
+   "stats": {
+    "final_usdt": 201.53,
+    "total_return": 0.3435,
+    "cagr": 0.0628,
+    "sharpe": 0.355,
+    "max_drawdown": 0.451,
+    "worst_day": -0.2043,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.156,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.014,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.0,
+    "exposure_mean": 0.446,
+    "exposure_max": 2.53,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 295,
+     "stops": 54,
+     "liquidations": 0,
+     "entries": 145
+    },
+    "ETHUSDT": {
+     "fills": 676,
+     "stops": 155,
+     "liquidations": 0,
+     "entries": 348
+    },
+    "latch_trips": 57
+   }
+  },
+  "3x 15x/0.03 10/25 x1": {
+   "stats": {
+    "final_usdt": 214.07,
+    "total_return": 0.4271,
+    "cagr": 0.0761,
+    "sharpe": 0.385,
+    "max_drawdown": 0.4435,
+    "worst_day": -0.1672,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.129,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.014,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.0,
+    "exposure_mean": 0.445,
+    "exposure_max": 2.475,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 215,
+     "stops": 46,
+     "liquidations": 0,
+     "entries": 104
+    },
+    "ETHUSDT": {
+     "fills": 629,
+     "stops": 130,
+     "liquidations": 0,
+     "entries": 316
+    },
+    "latch_trips": 8
+   }
+  },
+  "3x 15x/0.03 none x2": {
+   "stats": {
+    "final_usdt": 181.62,
+    "total_return": 0.2108,
+    "cagr": 0.0402,
+    "sharpe": 0.309,
+    "max_drawdown": 0.5321,
+    "worst_day": -0.2017,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.154,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.011,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.0,
+    "exposure_mean": 0.426,
+    "exposure_max": 2.378,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 183,
+     "stops": 42,
+     "liquidations": 0,
+     "entries": 89
+    },
+    "ETHUSDT": {
+     "fills": 497,
+     "stops": 97,
+     "liquidations": 0,
+     "entries": 239
+    },
+    "latch_trips": 0
+   }
+  },
+  "3x 20x/0.0225 none x1": {
+   "stats": {
+    "final_usdt": 257.28,
+    "total_return": 0.7152,
+    "cagr": 0.1176,
+    "sharpe": 0.472,
+    "max_drawdown": 0.5044,
+    "worst_day": -0.2009,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.183,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.009,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.0,
+    "exposure_mean": 0.49,
+    "exposure_max": 2.535,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 319,
+     "stops": 75,
+     "liquidations": 0,
+     "entries": 157
+    },
+    "ETHUSDT": {
+     "fills": 578,
+     "stops": 142,
+     "liquidations": 0,
+     "entries": 278
+    },
+    "latch_trips": 0
+   }
+  },
+  "3x 20x/0.0225 3/12 x1": {
+   "stats": {
+    "final_usdt": 264.26,
+    "total_return": 0.7617,
+    "cagr": 0.1238,
+    "sharpe": 0.486,
+    "max_drawdown": 0.5056,
+    "worst_day": -0.0907,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.172,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.004,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.0,
+    "exposure_mean": 0.423,
+    "exposure_max": 2.374,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 449,
+     "stops": 86,
+     "liquidations": 0,
+     "entries": 224
+    },
+    "ETHUSDT": {
+     "fills": 1015,
+     "stops": 268,
+     "liquidations": 0,
+     "entries": 534
+    },
+    "latch_trips": 154
+   }
+  },
+  "3x 20x/0.0225 5/12 x1": {
+   "stats": {
+    "final_usdt": 192.91,
+    "total_return": 0.2861,
+    "cagr": 0.0532,
+    "sharpe": 0.33,
+    "max_drawdown": 0.4986,
+    "worst_day": -0.1573,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.174,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.017,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.0,
+    "exposure_mean": 0.454,
+    "exposure_max": 2.331,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 387,
+     "stops": 87,
+     "liquidations": 0,
+     "entries": 192
+    },
+    "ETHUSDT": {
+     "fills": 715,
+     "stops": 205,
+     "liquidations": 0,
+     "entries": 360
+    },
+    "latch_trips": 56
+   }
+  },
+  "3x 20x/0.0225 10/25 x1": {
+   "stats": {
+    "final_usdt": 223.02,
+    "total_return": 0.4868,
+    "cagr": 0.0852,
+    "sharpe": 0.405,
+    "max_drawdown": 0.434,
+    "worst_day": -0.1622,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.151,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.013,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.0,
+    "exposure_mean": 0.476,
+    "exposure_max": 2.367,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 312,
+     "stops": 78,
+     "liquidations": 0,
+     "entries": 152
+    },
+    "ETHUSDT": {
+     "fills": 616,
+     "stops": 158,
+     "liquidations": 0,
+     "entries": 306
+    },
+    "latch_trips": 10
+   }
+  },
+  "3x 20x/0.0225 none x2": {
+   "stats": {
+    "final_usdt": 167.56,
+    "total_return": 0.1171,
+    "cagr": 0.0231,
+    "sharpe": 0.264,
+    "max_drawdown": 0.5761,
+    "worst_day": -0.2008,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.166,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.008,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.0,
+    "exposure_mean": 0.419,
+    "exposure_max": 2.511,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 217,
+     "stops": 52,
+     "liquidations": 0,
+     "entries": 104
+    },
+    "ETHUSDT": {
+     "fills": 517,
+     "stops": 130,
+     "liquidations": 0,
+     "entries": 244
+    },
+    "latch_trips": 0
+   }
+  },
+  "5x 10x/0.045 none x1": {
+   "stats": {
+    "final_usdt": 154.94,
+    "total_return": 0.0329,
+    "cagr": 0.0067,
+    "sharpe": 0.396,
+    "max_drawdown": 0.7447,
+    "worst_day": -0.2909,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.353,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.136,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.005,
+    "exposure_mean": 0.882,
+    "exposure_max": 4.214,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 320,
+     "stops": 32,
+     "liquidations": 0,
+     "entries": 160
+    },
+    "ETHUSDT": {
+     "fills": 663,
+     "stops": 92,
+     "liquidations": 0,
+     "entries": 297
+    },
+    "latch_trips": 0
+   }
+  },
+  "5x 10x/0.045 3/12 x1": {
+   "stats": {
+    "final_usdt": 90.48,
+    "total_return": -0.3968,
+    "cagr": -0.0989,
+    "sharpe": 0.139,
+    "max_drawdown": 0.7139,
+    "worst_day": -0.1905,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.339,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.047,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.0,
+    "exposure_mean": 0.618,
+    "exposure_max": 4.155,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 578,
+     "stops": 22,
+     "liquidations": 0,
+     "entries": 293
+    },
+    "ETHUSDT": {
+     "fills": 869,
+     "stops": 74,
+     "liquidations": 0,
+     "entries": 459
+    },
+    "latch_trips": 284
+   }
+  },
+  "5x 10x/0.045 5/12 x1": {
+   "stats": {
+    "final_usdt": 157.78,
+    "total_return": 0.0519,
+    "cagr": 0.0105,
+    "sharpe": 0.35,
+    "max_drawdown": 0.7319,
+    "worst_day": -0.2101,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.334,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.122,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.002,
+    "exposure_mean": 0.666,
+    "exposure_max": 4.301,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 413,
+     "stops": 28,
+     "liquidations": 0,
+     "entries": 208
+    },
+    "ETHUSDT": {
+     "fills": 920,
+     "stops": 93,
+     "liquidations": 0,
+     "entries": 514
+    },
+    "latch_trips": 166
+   }
+  },
+  "5x 10x/0.045 10/25 x1": {
+   "stats": {
+    "final_usdt": 133.34,
+    "total_return": -0.111,
+    "cagr": -0.024,
+    "sharpe": 0.339,
+    "max_drawdown": 0.6661,
+    "worst_day": -0.2749,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.321,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.131,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.008,
+    "exposure_mean": 0.796,
+    "exposure_max": 4.213,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 288,
+     "stops": 38,
+     "liquidations": 0,
+     "entries": 142
+    },
+    "ETHUSDT": {
+     "fills": 712,
+     "stops": 102,
+     "liquidations": 0,
+     "entries": 348
+    },
+    "latch_trips": 46
+   }
+  },
+  "5x 10x/0.045 none x2": {
+   "stats": {
+    "final_usdt": 89.47,
+    "total_return": -0.4035,
+    "cagr": -0.101,
+    "sharpe": 0.237,
+    "max_drawdown": 0.785,
+    "worst_day": -0.2955,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.343,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.129,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.004,
+    "exposure_mean": 0.806,
+    "exposure_max": 4.087,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 239,
+     "stops": 31,
+     "liquidations": 0,
+     "entries": 114
+    },
+    "ETHUSDT": {
+     "fills": 586,
+     "stops": 87,
+     "liquidations": 0,
+     "entries": 256
+    },
+    "latch_trips": 0
+   }
+  },
+  "5x 15x/0.03 none x1": {
+   "stats": {
+    "final_usdt": 151.42,
+    "total_return": 0.0095,
+    "cagr": 0.0019,
+    "sharpe": 0.383,
+    "max_drawdown": 0.7729,
+    "worst_day": -0.2898,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.316,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.132,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.01,
+    "exposure_mean": 0.806,
+    "exposure_max": 4.299,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 282,
+     "stops": 55,
+     "liquidations": 0,
+     "entries": 140
+    },
+    "ETHUSDT": {
+     "fills": 880,
+     "stops": 152,
+     "liquidations": 0,
+     "entries": 430
+    },
+    "latch_trips": 0
+   }
+  },
+  "5x 15x/0.03 3/12 x1": {
+   "stats": {
+    "final_usdt": 112.56,
+    "total_return": -0.2496,
+    "cagr": -0.0575,
+    "sharpe": 0.218,
+    "max_drawdown": 0.7412,
+    "worst_day": -0.1501,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.325,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.099,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.0,
+    "exposure_mean": 0.622,
+    "exposure_max": 4.231,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 670,
+     "stops": 67,
+     "liquidations": 0,
+     "entries": 342
+    },
+    "ETHUSDT": {
+     "fills": 1027,
+     "stops": 157,
+     "liquidations": 0,
+     "entries": 560
+    },
+    "latch_trips": 306
+   }
+  },
+  "5x 15x/0.03 5/12 x1": {
+   "stats": {
+    "final_usdt": 109.95,
+    "total_return": -0.267,
+    "cagr": -0.062,
+    "sharpe": 0.21,
+    "max_drawdown": 0.8009,
+    "worst_day": -0.1304,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.347,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.121,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.002,
+    "exposure_mean": 0.621,
+    "exposure_max": 4.112,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 338,
+     "stops": 50,
+     "liquidations": 0,
+     "entries": 167
+    },
+    "ETHUSDT": {
+     "fills": 866,
+     "stops": 173,
+     "liquidations": 0,
+     "entries": 461
+    },
+    "latch_trips": 156
+   }
+  },
+  "5x 15x/0.03 10/25 x1": {
+   "stats": {
+    "final_usdt": 147.97,
+    "total_return": -0.0135,
+    "cagr": -0.0028,
+    "sharpe": 0.372,
+    "max_drawdown": 0.7052,
+    "worst_day": -0.2738,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.353,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.115,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.011,
+    "exposure_mean": 0.849,
+    "exposure_max": 4.374,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 409,
+     "stops": 69,
+     "liquidations": 0,
+     "entries": 205
+    },
+    "ETHUSDT": {
+     "fills": 885,
+     "stops": 179,
+     "liquidations": 0,
+     "entries": 443
+    },
+    "latch_trips": 37
+   }
+  },
+  "5x 15x/0.03 none x2": {
+   "stats": {
+    "final_usdt": 108.69,
+    "total_return": -0.2754,
+    "cagr": -0.0642,
+    "sharpe": 0.291,
+    "max_drawdown": 0.7831,
+    "worst_day": -0.3013,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.378,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.133,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.012,
+    "exposure_mean": 0.789,
+    "exposure_max": 4.114,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 280,
+     "stops": 53,
+     "liquidations": 0,
+     "entries": 135
+    },
+    "ETHUSDT": {
+     "fills": 740,
+     "stops": 129,
+     "liquidations": 0,
+     "entries": 345
+    },
+    "latch_trips": 0
+   }
+  },
+  "5x 20x/0.0225 none x1": {
+   "stats": {
+    "final_usdt": 162.61,
+    "total_return": 0.0841,
+    "cagr": 0.0168,
+    "sharpe": 0.407,
+    "max_drawdown": 0.7703,
+    "worst_day": -0.3102,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.32,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.143,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.013,
+    "exposure_mean": 0.861,
+    "exposure_max": 4.265,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 401,
+     "stops": 78,
+     "liquidations": 0,
+     "entries": 200
+    },
+    "ETHUSDT": {
+     "fills": 870,
+     "stops": 189,
+     "liquidations": 0,
+     "entries": 417
+    },
+    "latch_trips": 0
+   }
+  },
+  "5x 20x/0.0225 3/12 x1": {
+   "stats": {
+    "final_usdt": 94.92,
+    "total_return": -0.3672,
+    "cagr": -0.09,
+    "sharpe": 0.13,
+    "max_drawdown": 0.7285,
+    "worst_day": -0.1003,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.271,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.049,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.0,
+    "exposure_mean": 0.595,
+    "exposure_max": 4.212,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 612,
+     "stops": 89,
+     "liquidations": 0,
+     "entries": 307
+    },
+    "ETHUSDT": {
+     "fills": 1011,
+     "stops": 229,
+     "liquidations": 0,
+     "entries": 533
+    },
+    "latch_trips": 283
+   }
+  },
+  "5x 20x/0.0225 5/12 x1": {
+   "stats": {
+    "final_usdt": 141.66,
+    "total_return": -0.0556,
+    "cagr": -0.0117,
+    "sharpe": 0.302,
+    "max_drawdown": 0.8115,
+    "worst_day": -0.1455,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.343,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.13,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.004,
+    "exposure_mean": 0.656,
+    "exposure_max": 4.19,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 548,
+     "stops": 103,
+     "liquidations": 0,
+     "entries": 273
+    },
+    "ETHUSDT": {
+     "fills": 1152,
+     "stops": 262,
+     "liquidations": 0,
+     "entries": 623
+    },
+    "latch_trips": 175
+   }
+  },
+  "5x 20x/0.0225 10/25 x1": {
+   "stats": {
+    "final_usdt": 173.63,
+    "total_return": 0.1575,
+    "cagr": 0.0306,
+    "sharpe": 0.406,
+    "max_drawdown": 0.6505,
+    "worst_day": -0.2175,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.319,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.125,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.007,
+    "exposure_mean": 0.871,
+    "exposure_max": 4.319,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 548,
+     "stops": 98,
+     "liquidations": 0,
+     "entries": 279
+    },
+    "ETHUSDT": {
+     "fills": 917,
+     "stops": 224,
+     "liquidations": 0,
+     "entries": 457
+    },
+    "latch_trips": 35
+   }
+  },
+  "5x 20x/0.0225 none x2": {
+   "stats": {
+    "final_usdt": 83.27,
+    "total_return": -0.4449,
+    "cagr": -0.1142,
+    "sharpe": 0.203,
+    "max_drawdown": 0.8095,
+    "worst_day": -0.3178,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.353,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.151,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.01,
+    "exposure_mean": 0.757,
+    "exposure_max": 4.081,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 287,
+     "stops": 71,
+     "liquidations": 0,
+     "entries": 140
+    },
+    "ETHUSDT": {
+     "fills": 728,
+     "stops": 166,
+     "liquidations": 0,
+     "entries": 331
+    },
+    "latch_trips": 0
+   }
+  },
+  "7x 10x/0.045 none x1": {
+   "stats": {
+    "final_usdt": 63.1,
+    "total_return": -0.5794,
+    "cagr": -0.1635,
+    "sharpe": 0.399,
+    "max_drawdown": 0.8392,
+    "worst_day": -0.3997,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.477,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.247,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.054,
+    "exposure_mean": 1.257,
+    "exposure_max": 6.064,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 410,
+     "stops": 38,
+     "liquidations": 0,
+     "entries": 203
+    },
+    "ETHUSDT": {
+     "fills": 675,
+     "stops": 78,
+     "liquidations": 0,
+     "entries": 268
+    },
+    "latch_trips": 0
+   }
+  },
+  "7x 10x/0.045 3/12 x1": {
+   "stats": {
+    "final_usdt": 115.77,
+    "total_return": -0.2282,
+    "cagr": -0.052,
+    "sharpe": 0.327,
+    "max_drawdown": 0.8955,
+    "worst_day": -0.2019,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.4,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.163,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.005,
+    "exposure_mean": 0.73,
+    "exposure_max": 6.157,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 706,
+     "stops": 21,
+     "liquidations": 0,
+     "entries": 359
+    },
+    "ETHUSDT": {
+     "fills": 1228,
+     "stops": 63,
+     "liquidations": 0,
+     "entries": 690
+    },
+    "latch_trips": 368
+   }
+  },
+  "7x 10x/0.045 5/12 x1": {
+   "stats": {
+    "final_usdt": 34.13,
+    "total_return": -0.7725,
+    "cagr": -0.263,
+    "sharpe": 0.003,
+    "max_drawdown": 0.8972,
+    "worst_day": -0.2492,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.4,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.175,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.006,
+    "exposure_mean": 0.688,
+    "exposure_max": 5.979,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 367,
+     "stops": 19,
+     "liquidations": 0,
+     "entries": 184
+    },
+    "ETHUSDT": {
+     "fills": 920,
+     "stops": 69,
+     "liquidations": 0,
+     "entries": 475
+    },
+    "latch_trips": 209
+   }
+  },
+  "7x 10x/0.045 10/25 x1": {
+   "stats": {
+    "final_usdt": 31.41,
+    "total_return": -0.7906,
+    "cagr": -0.2755,
+    "sharpe": 0.223,
+    "max_drawdown": 0.9461,
+    "worst_day": -0.4105,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.423,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.247,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.092,
+    "exposure_mean": 0.888,
+    "exposure_max": 6.462,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 130,
+     "stops": 19,
+     "liquidations": 0,
+     "entries": 64
+    },
+    "ETHUSDT": {
+     "fills": 1231,
+     "stops": 103,
+     "liquidations": 0,
+     "entries": 624
+    },
+    "latch_trips": 108
+   }
+  },
+  "7x 10x/0.045 none x2": {
+   "stats": {
+    "final_usdt": 54.81,
+    "total_return": -0.6346,
+    "cagr": -0.1874,
+    "sharpe": 0.359,
+    "max_drawdown": 0.877,
+    "worst_day": -0.3817,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.503,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.262,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.058,
+    "exposure_mean": 1.235,
+    "exposure_max": 6.186,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 386,
+     "stops": 35,
+     "liquidations": 0,
+     "entries": 188
+    },
+    "ETHUSDT": {
+     "fills": 807,
+     "stops": 88,
+     "liquidations": 0,
+     "entries": 328
+    },
+    "latch_trips": 0
+   }
+  },
+  "7x 15x/0.03 none x1": {
+   "stats": {
+    "final_usdt": 47.55,
+    "total_return": -0.683,
+    "cagr": -0.2108,
+    "sharpe": 0.326,
+    "max_drawdown": 0.8566,
+    "worst_day": -0.3672,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.532,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.235,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.053,
+    "exposure_mean": 1.237,
+    "exposure_max": 6.218,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 470,
+     "stops": 65,
+     "liquidations": 0,
+     "entries": 228
+    },
+    "ETHUSDT": {
+     "fills": 765,
+     "stops": 126,
+     "liquidations": 0,
+     "entries": 330
+    },
+    "latch_trips": 0
+   }
+  },
+  "7x 15x/0.03 3/12 x1": {
+   "stats": {
+    "final_usdt": 85.06,
+    "total_return": -0.433,
+    "cagr": -0.1103,
+    "sharpe": 0.24,
+    "max_drawdown": 0.9084,
+    "worst_day": -0.1416,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.482,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.175,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.002,
+    "exposure_mean": 0.77,
+    "exposure_max": 6.202,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 791,
+     "stops": 56,
+     "liquidations": 0,
+     "entries": 407
+    },
+    "ETHUSDT": {
+     "fills": 1254,
+     "stops": 129,
+     "liquidations": 0,
+     "entries": 702
+    },
+    "latch_trips": 385
+   }
+  },
+  "7x 15x/0.03 5/12 x1": {
+   "stats": {
+    "final_usdt": 36.65,
+    "total_return": -0.7556,
+    "cagr": -0.2521,
+    "sharpe": 0.023,
+    "max_drawdown": 0.8968,
+    "worst_day": -0.1861,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.413,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.166,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.011,
+    "exposure_mean": 0.69,
+    "exposure_max": 6.144,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 388,
+     "stops": 47,
+     "liquidations": 0,
+     "entries": 191
+    },
+    "ETHUSDT": {
+     "fills": 939,
+     "stops": 141,
+     "liquidations": 0,
+     "entries": 490
+    },
+    "latch_trips": 215
+   }
+  },
+  "7x 15x/0.03 10/25 x1": {
+   "stats": {
+    "final_usdt": 89.29,
+    "total_return": -0.4047,
+    "cagr": -0.1014,
+    "sharpe": 0.397,
+    "max_drawdown": 0.8752,
+    "worst_day": -0.2284,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.438,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.215,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.054,
+    "exposure_mean": 1.13,
+    "exposure_max": 6.268,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 535,
+     "stops": 79,
+     "liquidations": 0,
+     "entries": 270
+    },
+    "ETHUSDT": {
+     "fills": 1263,
+     "stops": 184,
+     "liquidations": 0,
+     "entries": 632
+    },
+    "latch_trips": 96
+   }
+  },
+  "7x 15x/0.03 none x2": {
+   "stats": {
+    "final_usdt": 27.87,
+    "total_return": -0.8142,
+    "cagr": -0.2931,
+    "sharpe": 0.083,
+    "max_drawdown": 0.9049,
+    "worst_day": -0.3932,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.491,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.23,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.047,
+    "exposure_mean": 0.818,
+    "exposure_max": 5.634,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 128,
+     "stops": 25,
+     "liquidations": 0,
+     "entries": 63
+    },
+    "ETHUSDT": {
+     "fills": 519,
+     "stops": 98,
+     "liquidations": 0,
+     "entries": 202
+    },
+    "latch_trips": 0
+   }
+  },
+  "7x 20x/0.0225 none x1": {
+   "stats": {
+    "final_usdt": 45.5,
+    "total_return": -0.6967,
+    "cagr": -0.218,
+    "sharpe": 0.302,
+    "max_drawdown": 0.8261,
+    "worst_day": -0.3495,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.557,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.255,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.07,
+    "exposure_mean": 1.221,
+    "exposure_max": 6.306,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 584,
+     "stops": 93,
+     "liquidations": 0,
+     "entries": 285
+    },
+    "ETHUSDT": {
+     "fills": 541,
+     "stops": 133,
+     "liquidations": 0,
+     "entries": 217
+    },
+    "latch_trips": 0
+   }
+  },
+  "7x 20x/0.0225 3/12 x1": {
+   "stats": {
+    "final_usdt": 92.73,
+    "total_return": -0.3818,
+    "cagr": -0.0944,
+    "sharpe": 0.269,
+    "max_drawdown": 0.824,
+    "worst_day": -0.1236,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.491,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.133,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.007,
+    "exposure_mean": 0.798,
+    "exposure_max": 6.096,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 904,
+     "stops": 90,
+     "liquidations": 0,
+     "entries": 475
+    },
+    "ETHUSDT": {
+     "fills": 1246,
+     "stops": 213,
+     "liquidations": 0,
+     "entries": 664
+    },
+    "latch_trips": 393
+   }
+  },
+  "7x 20x/0.0225 5/12 x1": {
+   "stats": {
+    "final_usdt": 37.42,
+    "total_return": -0.7506,
+    "cagr": -0.2489,
+    "sharpe": 0.017,
+    "max_drawdown": 0.8465,
+    "worst_day": -0.1915,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.486,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.2,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.031,
+    "exposure_mean": 0.802,
+    "exposure_max": 5.659,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 557,
+     "stops": 88,
+     "liquidations": 0,
+     "entries": 283
+    },
+    "ETHUSDT": {
+     "fills": 769,
+     "stops": 180,
+     "liquidations": 0,
+     "entries": 394
+    },
+    "latch_trips": 226
+   }
+  },
+  "7x 20x/0.0225 10/25 x1": {
+   "stats": {
+    "final_usdt": 112.96,
+    "total_return": -0.2469,
+    "cagr": -0.0568,
+    "sharpe": 0.457,
+    "max_drawdown": 0.8779,
+    "worst_day": -0.2191,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.48,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.228,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.08,
+    "exposure_mean": 1.189,
+    "exposure_max": 6.209,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 802,
+     "stops": 129,
+     "liquidations": 0,
+     "entries": 414
+    },
+    "ETHUSDT": {
+     "fills": 1431,
+     "stops": 271,
+     "liquidations": 0,
+     "entries": 721
+    },
+    "latch_trips": 96
+   }
+  },
+  "7x 20x/0.0225 none x2": {
+   "stats": {
+    "final_usdt": 29.97,
+    "total_return": -0.8002,
+    "cagr": -0.2824,
+    "sharpe": 0.178,
+    "max_drawdown": 0.8606,
+    "worst_day": -0.4062,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.518,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.221,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.049,
+    "exposure_mean": 1.028,
+    "exposure_max": 6.362,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 369,
+     "stops": 73,
+     "liquidations": 0,
+     "entries": 176
+    },
+    "ETHUSDT": {
+     "fills": 545,
+     "stops": 133,
+     "liquidations": 0,
+     "entries": 223
+    },
+    "latch_trips": 0
+   }
+  },
+  "10x 10x/0.045 none x1": {
+   "stats": {
+    "final_usdt": 9.21,
+    "total_return": -0.9386,
+    "cagr": -0.4373,
+    "sharpe": -0.117,
+    "max_drawdown": 0.9431,
+    "worst_day": -0.5196,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.295,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.193,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.064,
+    "exposure_mean": 0.512,
+    "exposure_max": 8.519,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 80,
+     "stops": 18,
+     "liquidations": 0,
+     "entries": 37
+    },
+    "ETHUSDT": {
+     "fills": 430,
+     "stops": 54,
+     "liquidations": 0,
+     "entries": 133
+    },
+    "latch_trips": 0
+   }
+  },
+  "10x 10x/0.045 3/12 x1": {
+   "stats": {
+    "final_usdt": 34.38,
+    "total_return": -0.7708,
+    "cagr": -0.2619,
+    "sharpe": 0.157,
+    "max_drawdown": 0.972,
+    "worst_day": -0.2107,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.465,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.254,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.081,
+    "exposure_mean": 0.815,
+    "exposure_max": 9.528,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 757,
+     "stops": 11,
+     "liquidations": 0,
+     "entries": 387
+    },
+    "ETHUSDT": {
+     "fills": 1459,
+     "stops": 49,
+     "liquidations": 0,
+     "entries": 802
+    },
+    "latch_trips": 415
+   }
+  },
+  "10x 10x/0.045 5/12 x1": {
+   "stats": {
+    "final_usdt": 13.84,
+    "total_return": -0.9077,
+    "cagr": -0.3881,
+    "sharpe": -0.099,
+    "max_drawdown": 0.9552,
+    "worst_day": -0.2838,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.553,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.254,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.068,
+    "exposure_mean": 0.676,
+    "exposure_max": 8.384,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 454,
+     "stops": 8,
+     "liquidations": 0,
+     "entries": 229
+    },
+    "ETHUSDT": {
+     "fills": 767,
+     "stops": 49,
+     "liquidations": 0,
+     "entries": 385
+    },
+    "latch_trips": 223
+   }
+  },
+  "10x 10x/0.045 10/25 x1": {
+   "stats": {
+    "final_usdt": 8.98,
+    "total_return": -0.9401,
+    "cagr": -0.4402,
+    "sharpe": 0.061,
+    "max_drawdown": 0.9889,
+    "worst_day": -0.4287,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.403,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.289,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.153,
+    "exposure_mean": 0.798,
+    "exposure_max": 9.344,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 251,
+     "stops": 18,
+     "liquidations": 0,
+     "entries": 131
+    },
+    "ETHUSDT": {
+     "fills": 1250,
+     "stops": 73,
+     "liquidations": 0,
+     "entries": 606
+    },
+    "latch_trips": 124
+   }
+  },
+  "10x 10x/0.045 none x2": {
+   "stats": {
+    "final_usdt": 8.77,
+    "total_return": -0.9415,
+    "cagr": -0.443,
+    "sharpe": -0.106,
+    "max_drawdown": 0.9415,
+    "worst_day": -0.5189,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.315,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.174,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.061,
+    "exposure_mean": 0.536,
+    "exposure_max": 8.632,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 78,
+     "stops": 15,
+     "liquidations": 0,
+     "entries": 35
+    },
+    "ETHUSDT": {
+     "fills": 467,
+     "stops": 55,
+     "liquidations": 0,
+     "entries": 146
+    },
+    "latch_trips": 0
+   }
+  },
+  "10x 15x/0.03 none x1": {
+   "stats": {
+    "final_usdt": 8.82,
+    "total_return": -0.9412,
+    "cagr": -0.4423,
+    "sharpe": -0.028,
+    "max_drawdown": 0.9413,
+    "worst_day": -0.4588,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.337,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.189,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.08,
+    "exposure_mean": 0.578,
+    "exposure_max": 8.508,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 86,
+     "stops": 23,
+     "liquidations": 0,
+     "entries": 41
+    },
+    "ETHUSDT": {
+     "fills": 625,
+     "stops": 99,
+     "liquidations": 0,
+     "entries": 232
+    },
+    "latch_trips": 0
+   }
+  },
+  "10x 15x/0.03 3/12 x1": {
+   "stats": {
+    "final_usdt": 36.04,
+    "total_return": -0.7598,
+    "cagr": -0.2547,
+    "sharpe": 0.136,
+    "max_drawdown": 0.978,
+    "worst_day": -0.1951,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.435,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.265,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.102,
+    "exposure_mean": 0.792,
+    "exposure_max": 9.658,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 693,
+     "stops": 26,
+     "liquidations": 0,
+     "entries": 360
+    },
+    "ETHUSDT": {
+     "fills": 1376,
+     "stops": 83,
+     "liquidations": 0,
+     "entries": 754
+    },
+    "latch_trips": 408
+   }
+  },
+  "10x 15x/0.03 5/12 x1": {
+   "stats": {
+    "final_usdt": 15.05,
+    "total_return": -0.8996,
+    "cagr": -0.3774,
+    "sharpe": -0.008,
+    "max_drawdown": 0.9733,
+    "worst_day": -0.2211,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.517,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.282,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.13,
+    "exposure_mean": 0.711,
+    "exposure_max": 9.638,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 473,
+     "stops": 38,
+     "liquidations": 0,
+     "entries": 237
+    },
+    "ETHUSDT": {
+     "fills": 1379,
+     "stops": 100,
+     "liquidations": 0,
+     "entries": 747
+    },
+    "latch_trips": 246
+   }
+  },
+  "10x 15x/0.03 10/25 x1": {
+   "stats": {
+    "final_usdt": 8.81,
+    "total_return": -0.9413,
+    "cagr": -0.4425,
+    "sharpe": -0.087,
+    "max_drawdown": 0.987,
+    "worst_day": -0.3083,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.407,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.267,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.155,
+    "exposure_mean": 0.647,
+    "exposure_max": 9.217,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 260,
+     "stops": 43,
+     "liquidations": 0,
+     "entries": 136
+    },
+    "ETHUSDT": {
+     "fills": 1147,
+     "stops": 125,
+     "liquidations": 0,
+     "entries": 581
+    },
+    "latch_trips": 106
+   }
+  },
+  "10x 15x/0.03 none x2": {
+   "stats": {
+    "final_usdt": 7.35,
+    "total_return": -0.951,
+    "cagr": -0.4629,
+    "sharpe": -0.315,
+    "max_drawdown": 0.951,
+    "worst_day": -0.3858,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.274,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.182,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.07,
+    "exposure_mean": 0.361,
+    "exposure_max": 7.81,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 78,
+     "stops": 21,
+     "liquidations": 0,
+     "entries": 37
+    },
+    "ETHUSDT": {
+     "fills": 414,
+     "stops": 74,
+     "liquidations": 0,
+     "entries": 148
+    },
+    "latch_trips": 0
+   }
+  },
+  "10x 20x/0.0225 none x1": {
+   "stats": {
+    "final_usdt": 7.47,
+    "total_return": -0.9502,
+    "cagr": -0.4611,
+    "sharpe": -0.37,
+    "max_drawdown": 0.9502,
+    "worst_day": -0.3832,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.275,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.173,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.052,
+    "exposure_mean": 0.361,
+    "exposure_max": 8.069,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 119,
+     "stops": 33,
+     "liquidations": 0,
+     "entries": 57
+    },
+    "ETHUSDT": {
+     "fills": 443,
+     "stops": 100,
+     "liquidations": 0,
+     "entries": 163
+    },
+    "latch_trips": 0
+   }
+  },
+  "10x 20x/0.0225 3/12 x1": {
+   "stats": {
+    "final_usdt": 38.94,
+    "total_return": -0.7404,
+    "cagr": -0.2427,
+    "sharpe": 0.238,
+    "max_drawdown": 0.9201,
+    "worst_day": -0.1765,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.614,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.276,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.053,
+    "exposure_mean": 0.91,
+    "exposure_max": 9.359,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 1111,
+     "stops": 66,
+     "liquidations": 0,
+     "entries": 601
+    },
+    "ETHUSDT": {
+     "fills": 1194,
+     "stops": 150,
+     "liquidations": 0,
+     "entries": 624
+    },
+    "latch_trips": 452
+   }
+  },
+  "10x 20x/0.0225 5/12 x1": {
+   "stats": {
+    "final_usdt": 24.66,
+    "total_return": -0.8356,
+    "cagr": -0.3107,
+    "sharpe": 0.078,
+    "max_drawdown": 0.9375,
+    "worst_day": -0.2187,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.577,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.274,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.037,
+    "exposure_mean": 0.853,
+    "exposure_max": 8.628,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 597,
+     "stops": 66,
+     "liquidations": 0,
+     "entries": 303
+    },
+    "ETHUSDT": {
+     "fills": 769,
+     "stops": 132,
+     "liquidations": 0,
+     "entries": 385
+    },
+    "latch_trips": 260
+   }
+  },
+  "10x 20x/0.0225 10/25 x1": {
+   "stats": {
+    "final_usdt": 21.08,
+    "total_return": -0.8595,
+    "cagr": -0.3327,
+    "sharpe": 0.332,
+    "max_drawdown": 0.9736,
+    "worst_day": -0.3559,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.634,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.413,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.158,
+    "exposure_mean": 1.377,
+    "exposure_max": 9.411,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 673,
+     "stops": 102,
+     "liquidations": 0,
+     "entries": 348
+    },
+    "ETHUSDT": {
+     "fills": 1401,
+     "stops": 194,
+     "liquidations": 0,
+     "entries": 685
+    },
+    "latch_trips": 163
+   }
+  },
+  "10x 20x/0.0225 none x2": {
+   "stats": {
+    "final_usdt": 7.29,
+    "total_return": -0.9514,
+    "cagr": -0.4638,
+    "sharpe": -0.43,
+    "max_drawdown": 0.9514,
+    "worst_day": -0.3746,
+    "loss_stop_15pct_share_of_90_day_pilots": 0.264,
+    "loss_stop_30pct_share_of_90_day_pilots": 0.165,
+    "loss_stop_50pct_share_of_90_day_pilots": 0.056,
+    "exposure_mean": 0.348,
+    "exposure_max": 8.143,
+    "days": 1771
+   },
+   "counts": {
+    "BTCUSDT": {
+     "fills": 94,
+     "stops": 26,
+     "liquidations": 0,
+     "entries": 45
+    },
+    "ETHUSDT": {
+     "fills": 361,
+     "stops": 85,
+     "liquidations": 0,
+     "entries": 130
+    },
+    "latch_trips": 0
+   }
+  }
+ }
+}

@@ -4,7 +4,7 @@ No exchange client is imported. OHLC cannot determine queue position: maker
 orders require strict price penetration, have a volume cap and expire.
 
 Optional isolated-margin mode (``isolated_leverage`` > 0, off by default):
-gross exposure up to ``MAX_TOTAL_LEVERAGE`` x equity, a protective stop per
+gross exposure up to ``RESEARCH_MAX_EXPOSURE`` x equity and never above the isolated leverage, a protective stop per
 position (``set_stop``), and liquidation at the isolated-margin price. Within a
 bar the order of events is unknown, so the model is deliberately adverse:
 - an open beyond the liquidation price liquidates (loss = posted margin);
@@ -42,13 +42,16 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from trading.domain.bars import Bar
 from trading.domain.orders import LIMIT_OFFSET_BPS
-from trading.domain.risk.exposure import MAX_TOTAL_LEVERAGE
 from trading.domain.position import StrategyPosition
 
 if TYPE_CHECKING:
     from trading.domain.strategy.overlay import StrategySpec
 
 D = Decimal
+# Research may model gross exposure up to 10 x equity in isolated mode (owner 2026-11-17: "改为资金的10倍", research
+# first shows what 5x to 10x would do). The runtime's caps are trading/domain/risk/exposure.py; paper never runs
+# isolated mode (SimulatedExchange refuses an isolated broker).
+RESEARCH_MAX_EXPOSURE = Decimal(10)
 Row = dict[str, Any]     # an order, fill or log row: the broker keeps its state as plain dicts
 
 
@@ -117,8 +120,8 @@ class ReplayConfig:
         else:
             if not 1 <= leverage <= 20:
                 raise ValueError("isolated_leverage must be in [1, 20]")
-            if not 0 < D(self.max_exposure) <= min(MAX_TOTAL_LEVERAGE, leverage):
-                raise ValueError(f"max_exposure must be in (0, min({MAX_TOTAL_LEVERAGE}, isolated_leverage)]")
+            if not 0 < D(self.max_exposure) <= min(RESEARCH_MAX_EXPOSURE, leverage):
+                raise ValueError(f"max_exposure must be in (0, min({RESEARCH_MAX_EXPOSURE}, isolated_leverage)]")
             if not 0 < mmr < 1 / leverage:
                 raise ValueError("maintenance_margin_rate must be in (0, 1/isolated_leverage)")
         if not D(str(self.stop_slippage_bps)).is_finite() or not 0 <= D(str(self.stop_slippage_bps)) < 10000:
