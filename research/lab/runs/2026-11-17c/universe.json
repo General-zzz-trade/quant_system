@@ -1,0 +1,36 @@
+{
+ "capital": "150",
+ "leverage": "2",
+ "lists": [
+  [
+   "BTCUSDT",
+   "ETHUSDT"
+  ],
+  [
+   "BTCUSDT",
+   "ETHUSDT"
+  ],
+  [
+   "BTCUSDT",
+   "ETHUSDT"
+  ],
+  [
+   "BTCUSDT",
+   "ETHUSDT"
+  ],
+  [
+   "BTCUSDT",
+   "ETHUSDT"
+  ],
+  [
+   "BTCUSDT",
+   "ETHUSDT"
+  ],
+  [
+   "BTCUSDT",
+   "ETHUSDT"
+  ]
+ ],
+ "rule": "BTCUSDT and ETHUSDT only, the same list in every period (owner 2026-11-17)",
+ "slots": 2
+}
