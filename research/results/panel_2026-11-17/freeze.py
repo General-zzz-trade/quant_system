@@ -50,6 +50,10 @@ def main():
                               if path.name.endswith(".model.txt") else [])
             models[f"{name} {model}"] = {f.name: sha(f) for f in files}
             print(name, model, "rows", int(np.isfinite(target).sum()), flush=True)
+        if name.startswith("fwd_vol"):                                    # the naive forecast the gain is against
+            path = R.ps.save_frozen(R.ps.fit_final(x[["log_rv_30"]], target, t, kind=kind, model="ridge"),
+                                    FROZEN / f"{name}_naive")
+            models[f"{name} naive"] = {path.name: sha(path)}
     commit = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "HEAD"], capture_output=True,
                             text=True).stdout.strip()
     spec = {"study": "panel_2026-11-17:frozen", "frozen_at": "2026-11-17", "code_commit": commit,
