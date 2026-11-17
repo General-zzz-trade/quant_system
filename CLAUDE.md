@@ -69,6 +69,9 @@
     (2026-11-25, 12-02, 12-09, 12-16; `lab/um_forward.py`). It still holds while the lowest hourly equity since the
     start stays above 92.5 % of the capital (owner 2026-11-17); only after 4 holds may a pilot be prepared, with a
     spec that carries `after_stop: pause_then_reset` (`research/protocols/2026-11-17-lab-forward-e3.md`).
+    - Its frozen spec lists ten whole-market symbols (ETH, SOL, XAU, CL, XAG, XRP, DOGE, ZEC, HYPE, 1000PEPE) and no
+      BTC; mainnet refuses any symbol but BTCUSDT and ETHUSDT (#153), so as frozen it cannot become a pilot. The looks
+      have no scheduled task; whether tracking goes on as a research record is open (owner, 2026-11-17).
 - **Closed lines:**
   - Hourly ML (`runner.offline research`): the validation-only re-check failed 2026-11-13
     (`research/results/ml_recheck_2026-11-13/`). Its code was deleted 2026-11-15 (M4); the last version is
@@ -106,7 +109,9 @@
   paper still take any USDT perpetual a signed spec lists, at most 10, with the strategy it names (R1–R7). The only
   spec so far is the BTC/ETH overlay. The Bybit, OKX and Polymarket code was deleted on 2026-11-15.
 - **Research lab (tech lead, 2026-11-16):** a scheduled crew in this session (Asia/Shanghai): scout 20:54, judge
-  22:54, engineer 02:51, morning brief 07:17 (push), weekly review Sunday. It follows the owner's lab prompt
+  22:54, engineer 02:51, morning brief 07:17 (push), weekly review Sunday. **Paused by the owner on 2026-11-17**: the
+  five tasks are disabled, not deleted (the nightly runs re-mined one fixed snapshot: more trials, no new data); the
+  monthly re-selection stays on. Do not re-enable them without the owner. It follows the owner's lab prompt
   as written: ideas are scanned and tested the same night and a champion and two challengers are named each
   morning, without pre-registering each batch (this replaces the research-protocol rule below for the lab;
   the four registered forward tests stay as they are). What stays: real data with source and timestamp only,
@@ -215,6 +220,11 @@ python -m trading.infrastructure.manual --state-dir <dir> position --symbol BTCU
   it queries instead. `ConfirmedExecutor` and `BinanceExecutionAdapter`, the old interfaces over it, are test
   support now (`tests/support/`): some characterization tests still drive the lifecycle through them.
 - Only exchange trade records become fills.
+- A placement is `rejected` only when Binance refused the request itself: a 4xx (not 403/408/418/429) whose error code
+  is in `_REQUEST_REFUSED` (`adapter.py`, #157). Anything else - timeouts, 5xx, 408/418/429, -1000/-1001/-1006/-1007,
+  a missing or unlisted code - is `error`: the outcome is unknown, the order is looked up for the whole not-found
+  grace (90 s) with the symbol's entries locked, and a stop is not replaced meanwhile. A stop refused with -2021 or
+  -4142 is breached (#158).
 - Exchange results are typed records (`trading/domain/venue.py`). Binance status words and error codes are
   translated in `trading/adapters/binance/adapter.py`; `tests/architecture` refuses them in domain/application.
 - `ProtectiveStopManager` keeps one exchange `STOP_MARKET closePosition` per confirmed position, sized and priced from
