@@ -13,6 +13,9 @@ USDC contracts are not used). Source: data.binance.vision; every zip is checked 
   the days of a month that has not closed yet come from the daily kline archive and the public funding endpoint.
 - ``end`` is exclusive and defaults to 2026-11-13: data from 2026-11-13 on is read only at registered forward
   looks (``lab/forward.py``), so this snapshot never contains it.
+- Except for the lab's monthly re-selection (``--monthly-lab``; tech lead 2026-11-17: the lab re-selects monthly on
+  new data). Its ``end`` is the first day of a month that has closed (not after today), so every month is whole.
+  The four registered forward tests stay frozen and are judged at their registered looks.
 
 Snapshots are immutable: an existing non-empty output directory is refused. ``manifest.json`` records the source,
 the window, every file's SHA-256 and row count, the months that were missing and the contract type.
@@ -159,9 +162,15 @@ def download_symbol(symbol: str, out: Path, start: date, end: date, *, fetch: Fe
     return entry
 
 
+MONTHLY_LAB = "tech lead 2026-11-17: the lab's monthly re-selection reads new data"
+
+
 def download(out: Path, *, start: date, end: date = DEFAULT_END, fetch: Fetch = http_get, workers: int = 16,
-             symbols: list[str] | None = None) -> dict:
-    if end > DEFAULT_END:
+             symbols: list[str] | None = None, monthly_lab: bool = False, today: date | None = None) -> dict:
+    today = today or datetime.now(timezone.utc).date()
+    if monthly_lab and (end.day != 1 or end > today):
+        raise ValueError(f"the monthly lab's end must be the first day of a closed month, not {end} (today {today})")
+    if end > DEFAULT_END and not monthly_lab:
         raise ValueError("data from 2026-11-13 on is read only at registered forward looks (lab/forward.py)")
     if out.exists() and any(out.iterdir()):
         raise FileExistsError(f"{out} is not empty; snapshots are immutable")
@@ -191,6 +200,8 @@ def download(out: Path, *, start: date, end: date = DEFAULT_END, fetch: Fetch = 
                 "failed": sorted(e["symbol"] for e in entries if "error" in e),
                 "funding_incomplete": sorted(e["symbol"] for e in entries if "funding_error" in e),
                 "contracts": sorted(entries, key=lambda e: e["symbol"])}
+    if monthly_lab:
+        manifest["monthly_lab"] = MONTHLY_LAB
     (out / "manifest.json").write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n")
     return manifest
 
@@ -201,8 +212,11 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--start", type=date.fromisoformat, default=date(2022, 11, 13))
     parser.add_argument("--end", type=date.fromisoformat, default=DEFAULT_END)
     parser.add_argument("--workers", type=int, default=16)
+    parser.add_argument("--monthly-lab", action="store_true",
+                        help="the lab's monthly re-selection: --end may be after 2026-11-13 "
+                             "(the first day of a closed month)")
     args = parser.parse_args(argv)
-    manifest = download(args.out, start=args.start, end=args.end, workers=args.workers)
+    manifest = download(args.out, start=args.start, end=args.end, workers=args.workers, monthly_lab=args.monthly_lab)
     print(f"{manifest['symbols_with_bars']} of {manifest['symbols_listed']} symbols written to {args.out}; "
           f"failed {len(manifest['failed'])}, funding incomplete {len(manifest['funding_incomplete'])}")
 
@@ -211,5 +225,5 @@ if __name__ == "__main__":
     main()
 
 
-__all__ = ["COLUMNS", "contract", "download", "download_symbol", "fetch_daily", "fetch_recent_funding", "main",
-           "usdt_perpetual"]
+__all__ = ["COLUMNS", "MONTHLY_LAB", "contract", "download", "download_symbol", "fetch_daily", "fetch_recent_funding",
+           "main", "usdt_perpetual"]

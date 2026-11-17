@@ -122,3 +122,28 @@ def test_a_failing_symbol_or_funding_call_is_recorded_and_the_rest_goes_on(tmp_p
                            symbols=["ABCUSDT", "BADUSDT"], fetch=flaky, workers=2)
     assert manifest["failed"] == ["BADUSDT"] and manifest["funding_incomplete"] == ["ABCUSDT"]
     assert (tmp_path / "snap" / "ABCUSDT_1h.csv.gz").exists()
+
+
+# -- the lab's monthly re-selection (tech lead 2026-11-17: monthly, on new data after 2026-11-13) ----------------
+def test_the_monthly_lab_may_download_up_to_the_first_day_of_a_closed_month(tmp_path):
+    manifest = um.download(tmp_path / "m", start=date(2026, 1, 1), end=date(2026, 12, 1), symbols=[],
+                           fetch=Archive(), monthly_lab=True, today=date(2026, 12, 8))
+    assert manifest["window"] == ["2026-01-01", "2026-12-01"]
+    assert manifest["monthly_lab"] == "tech lead 2026-11-17: the lab's monthly re-selection reads new data"
+
+
+@pytest.mark.parametrize("end, today", [(date(2026, 12, 5), date(2026, 12, 8)),     # not the first of a month
+                                        (date(2027, 1, 1), date(2026, 12, 8)),      # a month not closed yet
+                                        (date(2026, 12, 1), date(2026, 11, 30))])   # in the future
+def test_the_monthly_lab_takes_only_closed_months(tmp_path, end, today):
+    with pytest.raises(ValueError, match="monthly"):
+        um.download(tmp_path / "m", start=date(2026, 1, 1), end=end, symbols=[], fetch=Archive(),
+                    monthly_lab=True, today=today)
+
+
+def test_without_the_monthly_flag_the_forward_guard_stays(tmp_path):
+    with pytest.raises(ValueError, match="forward"):
+        um.download(tmp_path / "m", start=date(2026, 1, 1), end=date(2026, 12, 1), symbols=[], fetch=Archive(),
+                    today=date(2026, 12, 8))
+    manifest = um.download(tmp_path / "n", start=date(2026, 1, 1), symbols=[], fetch=Archive())
+    assert "monthly_lab" not in manifest

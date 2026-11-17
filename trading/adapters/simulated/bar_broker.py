@@ -23,6 +23,12 @@ guards the rest of that bar and every later one, at the current average entry; i
 rule above (and paper's BarStopModel). Market entries only: a maker fill lands at the close, after the bar's range.
 In isolated mode it replaces ``set_stop`` (the pilot runs 10x isolated with a 4.5 % stop, 2026-11-16) and must lie
 inside the liquidation distance; liquidation is still modelled first.
+
+Research only, a per-position distance (``set_next_stop_pct``; tech lead 2026-11-17, the lab's stop that tightens with
+low volatility, research/lab/runs/2026-11-17/vol_stop.md): the driver gives a distance with a decision's orders; a
+position those orders open (from flat or by a flip) keeps it until it is flat, at the current average entry. It lies
+in (0, ``stop_pct``]: the configured stop is the cap and the distance can only tighten it. None, the default and what
+paper always has, is the configured stop.
 """
 from __future__ import annotations
 
@@ -174,6 +180,8 @@ class BarBroker:
         self.leverage = D(str(config.isolated_leverage))
         self.margin = D(0)           # isolated margin posted for the open position
         self.stop_price: Decimal | None = None   # protective stop for the open position (isolated mode only)
+        self.next_stop_pct: Decimal | None = None       # set_next_stop_pct: for positions the next fills open
+        self.position_stop_pct: Decimal | None = None   # the open position's distance (None: the configured stop)
         self.liquidations: list[Row] = []
 
     @property
@@ -287,6 +295,8 @@ class BarBroker:
                 before = self.position.qty
                 self.position.apply(fact)
                 self._update_margin(before, price)
+                if before == 0 or (before > 0) != (self.position.qty > 0):    # opened from flat, or flipped
+                    self.position_stop_pct = self.next_stop_pct
                 self.fees += fee
                 fill_id = f"offline-fill-{len(self.fills) + 1}"
                 self.fills.append({"id": fill_id, "order": row["id"], "at": self.now, "side": row["side"],
@@ -323,6 +333,19 @@ class BarBroker:
         worst_equity = self.equity + self.position.qty * (worst_mark - bar.open)
         worst_equity += sign * qty * (worst_mark - price) - qty * price * fee_bps / 10000
         return abs(proposed) * bar.high > max(D(0), worst_equity) * D(self.config.max_exposure)
+
+    def set_next_stop_pct(self, pct: Decimal | float | str | None) -> None:
+        """The stop distance of positions the next fills open (research only, see the module docstring)."""
+        if pct is None:
+            self.next_stop_pct = None
+            return
+        value, cap = D(str(pct)), D(str(self.config.stop_pct))
+        if not value.is_finite() or not 0 < value <= cap:
+            raise ValueError(f"stop distance must be in (0, stop_pct={cap}], not {pct}")
+        self.next_stop_pct = value
+
+    def _stop_pct(self) -> Decimal:
+        return self.position_stop_pct if self.position_stop_pct is not None else D(self.config.stop_pct)
 
     # -- isolated-margin mode -----------------------------------------------------------------
     def set_stop(self, price: Decimal | float | str) -> None:
@@ -371,7 +394,7 @@ class BarBroker:
         long = qty > 0
         liq = cast(Decimal, self.liquidation_price())   # isolated mode with a position: never None
         beyond = (lambda p: p <= liq) if long else (lambda p: p >= liq)
-        pct = D(self.config.stop_pct)
+        pct = self._stop_pct()
         if pct > 0:                                      # the live exchange stop at the current average entry
             self.stop_price = self.position.entry_price * (1 - pct if long else 1 + pct)
         self.now = bar.available_at
@@ -400,7 +423,7 @@ class BarBroker:
         qty = self.position.qty
         if qty == 0:
             return
-        long, pct = qty > 0, D(self.config.stop_pct)
+        long, pct = qty > 0, self._stop_pct()
         stop = self.position.entry_price * (1 - pct if long else 1 + pct)
         if not ((bar.low <= stop) if long else (bar.high >= stop)):
             return
