@@ -29,7 +29,7 @@ from trading.adapters.files.host_lock import HostLock, prepare_lock_dir
 from trading.adapters.files.kill_switch import KillFile
 from trading.adapters.files.lease import ExecutionLease
 from trading.adapters.sqlite import schema
-from trading.adapters.sqlite.backup import copy_database, enable_wal, record_restore, symbols_in
+from trading.adapters.sqlite.backup import copy_database, enable_wal, record_migration, record_restore, symbols_in
 from trading.adapters.sqlite.drawdown_store import SqliteDrawdownGuard
 from trading.adapters.sqlite.entry_pause import SqliteEntryPauses
 from trading.adapters.sqlite.limit_store import SqliteLimitStore
@@ -103,6 +103,67 @@ def initialize(state_dir: Path, *, scope: str, testnet: bool, env: Mapping[str, 
     return True
 
 
+def migrate(state_dir: Path, *, scope: str, testnet: bool, env: Mapping[str, str] | None, stdout: TextIO,
+            now: float) -> int:
+    """ADR-0009 5: bring the state database to ``schema.VERSION`` with the runtime stopped (the host lock and the
+    directory lease), keeping a copy of the old file beside it. Only adds tables; refused for a database that has any
+    other problem than its version. Recorded in ``manual_actions`` and in the manifest."""
+    state_dir = Path(state_dir)
+    try:
+        manifest = json.loads((state_dir / MANIFEST).read_text())
+    except Exception:
+        print(f"{state_dir} was never initialized", file=stdout)
+        return 2
+    if manifest.get("scope") != scope:
+        print(f"{state_dir} belongs to scope {manifest.get('scope')}, not {scope}", file=stdout)
+        return 2
+    database = state_dir / STATE_DB
+    problems = schema.problems(database)
+    if not problems:
+        print(f"{STATE_DB} is at version {schema.VERSION}; nothing to migrate", file=stdout)
+        return 0
+    try:
+        had = schema.version(database)
+    except Exception:
+        had = -1
+    if had not in schema.MIGRATIONS or len(problems) != 1:
+        print(f"{STATE_DB} cannot be migrated: {'; '.join(problems)}", file=stdout)
+        return 2
+    try:
+        identity = account_identity(testnet=testnet, api_key=binance_config_from_env(testnet=testnet, env=env).api_key)
+    except RuntimeError:
+        print("the API key that names the account is not set", file=stdout)
+        return 2
+    try:
+        host = HostLock(identity, holder=f"state_dir migrate --state-dir {state_dir}")
+    except RuntimeError as exc:
+        print(f"a runtime of this account runs; stop the runtime first ({exc})", file=stdout)
+        return 3
+    try:
+        lease = ExecutionLease(database, scope)
+    except RuntimeError:
+        host.close()
+        print("a runtime holds this directory; stop the runtime first", file=stdout)
+        return 3
+    try:
+        stamp = datetime.fromtimestamp(now, timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        kept = state_dir / f"{STATE_DB}.v{had}-{stamp}"
+        copy_database(database, kept)
+        schema.migrate(database)
+        record_migration(database, scope=scope, at=now, had=had, version=schema.VERSION, kept=kept.name)
+        manifest["state_db_version"] = schema.VERSION
+        tmp = state_dir / f"{MANIFEST}.tmp"
+        tmp.write_text(json.dumps(manifest, indent=2) + "\n")
+        os.replace(tmp, state_dir / MANIFEST)
+        verify(state_dir, scope)
+    finally:
+        lease.close()
+        host.close()
+    print(f"{STATE_DB} migrated from version {had} to {schema.VERSION}; the old file is kept as {kept.name}",
+          file=stdout)
+    return 0
+
+
 RESTORE_PAUSE = "restored from a backup: a person checks the venue position and the ledger, then releases"
 RESTORE_SYMBOLS = ("BTCUSDT", "ETHUSDT")
 # Today's count after a restore: used up whatever limits the service runs with (S6-S8 audit, L2).
@@ -132,7 +193,12 @@ def restore(state_dir: Path, snapshot: Path, *, scope: str, testnet: bool, env: 
     if not problems:
         print(f"{STATE_DB} is intact; a restore is only for a lost or broken state database", file=stdout)
         return 1
-    if bad := schema.problems(snapshot):
+    bad = schema.problems(snapshot)
+    try:
+        older = len(bad) == 1 and schema.version(snapshot) in schema.MIGRATIONS     # migrated in its copy below
+    except Exception:
+        older = False
+    if bad and not older:
         print(f"the snapshot {snapshot} is not usable: {'; '.join(bad)}", file=stdout)
         return 2
     if schema.holds_paper_state(snapshot):      # S10 audit H1: an account's directory never takes a paper record
@@ -170,6 +236,9 @@ def restore(state_dir: Path, snapshot: Path, *, scope: str, testnet: bool, env: 
         for suffix in ("", "-wal", "-shm", "-journal"):
             Path(f"{temporary}{suffix}").unlink(missing_ok=True)
         copy_database(snapshot, temporary)
+        if older:                  # a backup made before the last version: its copy gets the new tables (ADR-0009 5)
+            print(f"the snapshot has version {schema.migrate(temporary)}; its copy is migrated to {schema.VERSION}",
+                  file=stdout)
         paused = sorted(set(symbols) | symbols_in(temporary))
         SqliteDrawdownGuard(temporary, scope, daily_pct=limits.daily_drawdown_pct,
                             weekly_pct=limits.weekly_drawdown_pct).latch_current(now=now)
@@ -218,6 +287,7 @@ def main(argv: list[str] | None = None, *, stdout: TextIO = sys.stdout, env: Map
     restore_cmd.add_argument("--reason", required=True)
     restore_cmd.add_argument("--symbols", default=",".join(RESTORE_SYMBOLS),
                              help="symbols to pause besides those in the snapshot")
+    commands.add_parser("migrate", help="bring the state database to the current version (runtime stopped)")
     args = parser.parse_args(argv)
     testnet = testnet_from_env(env)
     scope = execution_scope(testnet=testnet, env=env)          # raises before anything is created
@@ -225,6 +295,8 @@ def main(argv: list[str] | None = None, *, stdout: TextIO = sys.stdout, env: Map
         return restore(args.state_dir, args.snapshot, scope=scope, testnet=testnet, env=env, reason=args.reason,
                        symbols=[s.strip() for s in args.symbols.split(",") if s.strip()], stdin=stdin,
                        stdout=stdout, now=clock())
+    if args.command == "migrate":
+        return migrate(args.state_dir, scope=scope, testnet=testnet, env=env, stdout=stdout, now=clock())
     if args.command == "check":
         verify(args.state_dir, scope)
         print(f"{args.state_dir}: initialized for {scope}", file=stdout)
@@ -247,4 +319,4 @@ if __name__ == "__main__":
 
 
 __all__ = ["KILL_FILE", "MANIFEST", "OLD_LAYOUT", "STORES", "initialize", "is_managed", "kill_file_path", "main",
-           "restore", "verify"]
+           "migrate", "restore", "verify"]

@@ -53,4 +53,13 @@ def record_restore(path: Path, *, scope: str, at: float, snapshot: str, after: d
                    (scope, float(at), snapshot, json.dumps(after, sort_keys=True), reason))
 
 
-__all__ = ["copy_database", "enable_wal", "record_restore", "symbols_in"]
+def record_migration(path: Path, *, scope: str, at: float, had: int, version: int, kept: str) -> None:
+    """The audit row of a migration (``state_dir migrate``, ADR-0009 5), in the migrated database's
+    ``manual_actions``."""
+    with connect(path) as db:
+        db.execute("INSERT INTO manual_actions VALUES (?, ?, 'migrate', ?, ?, ?, '', ?)",
+                   (scope, float(at), f"state database version {had} to {version}", json.dumps({"version": had}),
+                    json.dumps({"version": version}), f"the version-{had} copy is kept as {kept}"))
+
+
+__all__ = ["copy_database", "enable_wal", "record_migration", "record_restore", "symbols_in"]
