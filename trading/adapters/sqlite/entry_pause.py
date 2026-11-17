@@ -63,6 +63,17 @@ class SqliteEntryPauses:
                              "ORDER BY paused_at LIMIT 1", (symbol, float(self.clock()))).fetchone()
         return str(row["cause"]) if row else None
 
+    def ended_by_itself(self, symbol: str) -> float | None:
+        """When ``symbol``'s latest pause began, if that pause has ended by itself at its scheduled time; None when
+        there is none, it is still running or a person released it (tech lead 2026-11-17: a spec's
+        ``after_stop: pause_then_reset`` waits for the strategy's reset after such a pause)."""
+        with self._connect() as db:
+            row = db.execute("SELECT paused_at, released_at, release_reason FROM entry_pauses WHERE symbol=? "
+                             "ORDER BY paused_at DESC, rowid DESC LIMIT 1", (symbol,)).fetchone()
+        if row is None or row["release_reason"] != SCHEDULED_END or row["released_at"] is None:
+            return None
+        return float(row["paused_at"]) if float(row["released_at"]) <= float(self.clock()) else None
+
     def covered(self, symbol: str) -> set[str]:
         """The stop triggers of ``symbol`` a pause has been set for."""
         with self._connect() as db:

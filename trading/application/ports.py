@@ -398,6 +398,8 @@ class EntryPauses(Protocol):
 
     def covered(self, symbol: str) -> set[str]: ...          # stop triggers a pause has been set for
 
+    def ended_by_itself(self, symbol: str) -> float | None: ...   # the latest pause's start, if it ended by itself
+
 
 class Notifier(Protocol):
     """Operator alerts. Delivery failures must never break the trading loop."""
