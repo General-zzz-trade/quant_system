@@ -1,0 +1,128 @@
+[
+ [
+  "open never takes the distance",
+  "trading/adapters/simulated/bar_broker.py",
+  "                    self.position_stop_pct = self.next_stop_pct\n",
+  "                    pass\n"
+ ],
+ [
+  "every fill takes the distance",
+  "trading/adapters/simulated/bar_broker.py",
+  "                if before == 0 or (before > 0) != (self.position.qty > 0):    # opened from flat, or flipped\n",
+  "                if True:\n"
+ ],
+ [
+  "flip keeps the old distance",
+  "trading/adapters/simulated/bar_broker.py",
+  "                if before == 0 or (before > 0) != (self.position.qty > 0):    # opened from flat, or flipped\n",
+  "                if before == 0:\n"
+ ],
+ [
+  "distance above the cap allowed",
+  "trading/adapters/simulated/bar_broker.py",
+  "        if not value.is_finite() or not 0 < value <= cap:\n",
+  "        if not value.is_finite() or not 0 < value:\n"
+ ],
+ [
+  "zero distance allowed",
+  "trading/adapters/simulated/bar_broker.py",
+  "        if not value.is_finite() or not 0 < value <= cap:\n",
+  "        if not value.is_finite() or not 0 <= value <= cap:\n"
+ ],
+ [
+  "cross stop ignores the distance",
+  "trading/adapters/simulated/bar_broker.py",
+  "        long, pct = qty > 0, self._stop_pct()\n",
+  "        long, pct = qty > 0, D(self.config.stop_pct)\n"
+ ],
+ [
+  "isolated stop ignores the distance",
+  "trading/adapters/simulated/bar_broker.py",
+  "        pct = self._stop_pct()\n        if pct > 0:",
+  "        pct = D(self.config.stop_pct)\n        if pct > 0:"
+ ],
+ [
+  "none does not reset",
+  "trading/adapters/simulated/bar_broker.py",
+  "            self.next_stop_pct = None\n            return\n",
+  "            return\n"
+ ],
+ [
+  "simulate never sets",
+  "lab/simulate.py",
+  "            sleeve.broker.set_next_stop_pct(stop_pct_at.get(bar.available_at))\n",
+  "            pass\n"
+ ],
+ [
+  "ddof 0",
+  "lab/um_lab.py",
+  "samples[whole].std(axis=1, ddof=1)",
+  "samples[whole].std(axis=1, ddof=0)"
+ ],
+ [
+  "13 returns",
+  "lab/um_lab.py",
+  "for j in range(days)])",
+  "for j in range(days - 1)])"
+ ],
+ [
+  "overlapping returns",
+  "lab/um_lab.py",
+  "daily.shift(24 * j)",
+  "daily.shift(j)"
+ ],
+ [
+  "no floor",
+  "lab/um_lab.py",
+  "np.clip(kf * sigma, floorf, capf)",
+  "np.clip(kf * sigma, 0.0, capf)"
+ ],
+ [
+  "gap ignored",
+  "lab/um_lab.py",
+  "    whole = np.isfinite(samples).all(axis=1)\n",
+  "    whole = np.isfinite(samples).any(axis=1)\n"
+ ],
+ [
+  "unknown is the floor",
+  "lab/um_lab.py",
+  "np.clip(kf * sigma, floorf, capf), capf)",
+  "np.clip(kf * sigma, floorf, capf), floorf)"
+ ],
+ [
+  "one hour late",
+  "lab/um_lab.py",
+  "{int(t) + H: f\"{v:.6f}\"",
+  "{int(t) + 2 * H: f\"{v:.6f}\""
+ ],
+ [
+  "no gap reindex",
+  "lab/um_lab.py",
+  "close = df[\"close\"].astype(float).reindex(np.arange(first, last + H, H, dtype=np.int64))",
+  "close = df[\"close\"].astype(float)"
+ ],
+ [
+  "floor above cap allowed",
+  "lab/um_lab.py",
+  "0 < floorf <= capf < 1",
+  "0 < floorf < 1"
+ ],
+ [
+  "vol name like fixed",
+  "lab/um_judge.py",
+  "            return f\"vol{self.vol_k}x_cap{self.stop_pct}_{after}\"\n",
+  "            pass\n"
+ ],
+ [
+  "k not passed",
+  "lab/um_judge.py",
+  "        return terms if self.vol_k is None else {**terms, \"stop_k\": self.vol_k}",
+  "        return terms"
+ ],
+ [
+  "zero k allowed",
+  "lab/um_judge.py",
+  "or D(self.vol_k) <= 0 or stop == 0",
+  "or D(self.vol_k) < 0 or stop == 0"
+ ]
+]
