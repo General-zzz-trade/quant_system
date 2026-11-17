@@ -196,6 +196,9 @@ trading/
 - 清单由实验室算、人来发布（技术负责人 2026-11-16）：运行时只交易规格里列出的品种，从不自己开始交易一个新品种。每个品种的
   交易所杠杆和保证金模式由人先在币安设好，否则启动检查拒绝。
 - 主网要求规格的 `passed` 为真；代码从不修改它。
+- 主网只交易 BTCUSDT 和 ETHUSDT（技术负责人 2026-11-17，`MAINNET_SYMBOLS`）：规格列了别的品种，启动检查（`preflight`，连账户之前）
+  和运行时组装处（`TargetRuntime.__init__`）都拒绝启动，第 1 版和第 2 版规格一样；`account_check --pilot` 也列出来。测试网和模拟盘
+  不受限。拒绝的是整个启动，不只是入场：主网状态目录里若有别的品种的账本仓位，运行时不能接手平掉，要由人处理。
 - 发布：`python3 -m scripts.publish_strategy_spec --study <目录> --out models_binance/strategy`（用同一个解析器检查后签名）。
 - 草稿：`python3 -m scripts.draft_strategy_spec --run <实验室一轮> --snapshot <快照>` 从冠军卡写出第 2 版草稿（`passed` 永远是
   false，不签名），并列出实盘还缺的止损规则（有缺口时退出码 2）。
@@ -240,6 +243,7 @@ trading/
 | 配置只读一次，配置记录不含密钥 | `tests/unit/trading/test_runtime_config.py`、`tests/architecture/test_config_rules.py` |
 | 亏损停止线到线就急停平仓，算不出时阻断入场 | `tests/unit/trading/test_strategy_loss_stop.py`、`tests/characterization/test_strategy_loss_stop_runtime.py` |
 | 策略接口：`latest` 等于 `history` 的最后一行；BTC/ETH 策略行为不变 | `tests/unit/trading/test_strategy_interface.py` |
+| 主网只交易 BTCUSDT 和 ETHUSDT，测试网和模拟盘不受限 | `tests/unit/trading/test_mainnet_symbols.py`、`tests/unit/tooling/test_pilot_check.py` |
 | 规格严格解析，第 1 版照旧加载 | `tests/unit/trading/test_spec_v2.py`、`test_runtime_extension_audit.py`、`tests/characterization/test_spec_v2_runtime.py` |
 | 一起决定：一次调用、缺数据时谁都不决定 | `tests/unit/trading/test_decide_together.py`、`tests/characterization/test_decide_together_runtime.py` |
 | 资金费间隔按品种，未知时不入场、减仓照常 | `tests/unit/trading/test_funding_interval.py`、`tests/characterization/test_funding_interval_runtime.py` |
