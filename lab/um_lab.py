@@ -54,6 +54,10 @@ START, SELECT_END, END = ms("2022-11-13"), ms("2026-05-13"), ms("2026-11-13")
 FOLDS = ((ms("2023-11-13"), ms("2024-11-13")), (ms("2024-11-13"), ms("2025-11-13")), (ms("2025-11-13"), SELECT_END))
 HOLDOUT = (SELECT_END, END)
 DEFAULT_RULES = SymbolRules(D("0.001"), D("0.001"), D("5"))   # a delisted contract has no published filters
+# the volatility-tightened stop (tech lead 2026-11-17, research/lab/runs/2026-11-17/vol_stop.md): k x the spread of
+# the last 14 daily returns, never below 1.5 % and never above the cap a person set
+VOL_STOP_FLOOR = "0.015"
+VOL_STOP_DAYS = 14
 
 Idea = Callable[[pd.DataFrame, dict], pd.Series]               # hourly frame, context -> target weight per bar
 Factory = Callable[[dict], Strategy]                           # a parameter set -> the strategy the judge replays
@@ -186,13 +190,35 @@ def liquid(symbol: str, *, min_daily_quote: float, snapshot: Path = SNAPSHOT) ->
     return pd.Series((median.reindex(df.index // DAY).to_numpy() >= min_daily_quote), index=df.index)
 
 
+def vol_stop_pct(df: pd.DataFrame, k: str, cap: str, *, floor: str = VOL_STOP_FLOOR,
+                 days: int = VOL_STOP_DAYS) -> pd.Series:
+    """The stop distance known at each hourly close (index = open time): ``k`` x the standard deviation of the last
+    ``days`` daily (24-hour) returns ending at that close, clipped to [``floor``, ``cap``]. Without ``days`` whole
+    returns (short history, a missing hour among the closes it reads) it is ``cap``."""
+    kf, capf, floorf = float(D(k)), float(D(cap)), float(D(floor))
+    if not (np.isfinite(kf) and kf > 0 and np.isfinite(capf) and 0 < floorf <= capf < 1 and days >= 2):
+        raise ValueError(f"not a volatility stop: k={k}, cap={cap}, floor={floor}, days={days}")
+    if df.empty:
+        return pd.Series(dtype=float, index=df.index)
+    first, last = int(df.index[0]), int(df.index[-1])
+    close = df["close"].astype(float).reindex(np.arange(first, last + H, H, dtype=np.int64))   # a gap stays NaN
+    daily = close / close.shift(24) - 1.0
+    samples = np.column_stack([daily.shift(24 * j).to_numpy() for j in range(days)])
+    whole = np.isfinite(samples).all(axis=1)
+    sigma = np.full(len(close), np.nan)
+    sigma[whole] = samples[whole].std(axis=1, ddof=1)
+    out = np.where(whole, np.clip(kf * sigma, floorf, capf), capf)
+    return pd.Series(out, index=close.index).reindex(df.index)
+
+
 # -- one contract through the shared broker --------------------------------------------------------------------
 def replay(symbol: str, weights: pd.Series, *, cost_multiplier: int = 1, start: int = START, end: int = END,
            snapshot: Path = SNAPSHOT, starting_balance: str = "5000", stop_pct: str = "0",
-           pause_ms: int | None = None, reenter_after_stop: str = "pause") -> dict:
+           pause_ms: int | None = None, reenter_after_stop: str = "pause", stop_k: str | None = None) -> dict:
     """Target weights (decided at each bar's close, index = open time) through the shared broker. Returns the
     hourly equity curve, the fills and the orders sent (time, notional at the reference price, reduce-only).
-    ``stop_pct``, ``pause_ms`` and ``reenter_after_stop`` are lab.simulate's stop, pause and re-entry rule."""
+    ``stop_pct``, ``pause_ms`` and ``reenter_after_stop`` are lab.simulate's stop, pause and re-entry rule.
+    ``stop_k``: the volatility-tightened stop (``vol_stop_pct`` with ``stop_pct`` as the cap) instead of a fixed one."""
     df = frame(symbol, snapshot)
     df = df[(df.index >= start - 40 * DAY) & (df.index < end)]
     bars = [bar_from_kline({"start": int(t), "open": str(r.open), "high": str(r.high), "low": str(r.low),
@@ -201,11 +227,13 @@ def replay(symbol: str, weights: pd.Series, *, cost_multiplier: int = 1, start: 
     targets = pd.DataFrame({"available_at": df.index.to_numpy(np.int64) + H, "target": w.to_numpy(float),
                             "ready": np.ones(len(df), dtype=bool)})
     funding = {int(t): (D(repr(float(r))),) for t, r in df["funding"].items() if r != 0.0}
+    stop_pct_at = None if stop_k is None else \
+        {int(t) + H: f"{v:.6f}" for t, v in vol_stop_pct(df, stop_k, stop_pct).items()}
     result = simulate(symbol, bars, targets, funding, StrategySpec(execution="market"),
                       start_ms=max(start, int(df.index[0]) if len(df) else start), end_ms=end,
                       rules=rules(symbol, snapshot), cost_multiplier=cost_multiplier,
                       starting_balance=starting_balance, stop_pct=stop_pct, pause_after_stop_ms=pause_ms,
-                      reenter_after_stop=reenter_after_stop)
+                      reenter_after_stop=reenter_after_stop, stop_pct_at=stop_pct_at)
     curve = result.curve.set_index("at")["equity"]
     orders = [(int(o["submitted_at"]), float(D(o["qty"]) * D(o["reference"])), bool(o["reduce_only"]))
               for o in result.order_rows if o.get("rejection") != "below trading minimum"]
@@ -420,7 +448,8 @@ def record(rows: list[dict], path: Path = TRIALS) -> None:
             handle.write(json.dumps(row, sort_keys=True, default=str) + "\n")
 
 
-__all__ = ["DAY", "END", "FOLDS", "H", "HOLDOUT", "LIVE", "LiveTerms", "Run", "SELECT_END", "START",
+__all__ = ["DAY", "END", "FOLDS", "H", "HOLDOUT", "LIVE", "LiveTerms", "Run", "SELECT_END", "START", "VOL_STOP_DAYS",
+           "VOL_STOP_FLOOR", "vol_stop_pct",
            "account_daily", "buy_and_hold", "by_regime", "contracts", "frame", "limits_needed", "liquid",
            "live_report", "losing_streaks", "loss_stop_share", "manifest", "portfolio_daily", "record", "regimes",
            "replay", "round_trips", "rules", "run_idea", "summary", "walk_forward", "window"]
