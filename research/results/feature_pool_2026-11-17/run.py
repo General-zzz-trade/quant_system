@@ -25,7 +25,7 @@ from lab.study import DEV_END, EVAL_START  # noqa: E402
 from trading.adapters.simulated.bar_broker import SymbolRules  # noqa: E402
 
 PUBLIC = ROOT / "data_files" / "binance_public"
-FEATURES = ROOT / "data_files" / "btc_eth_features_2026-11-12"
+FEATURES = ROOT / "data_files" / "btc_eth_features_2025-11-16"
 MARKET = ROOT / "data_files" / "binance_usdt_perps_2020_2026-11-12"
 TRADFI = json.loads((ROOT / "research/lab/runs/2026-11-17b/tradfi_contracts.json").read_text())["symbols"]
 OUT = Path(__file__).with_name("results.json")
