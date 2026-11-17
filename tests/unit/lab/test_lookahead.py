@@ -216,6 +216,10 @@ OTHER_MODULES = {
                          "is checked in test_um_portfolio) and combinations of the judge's cached results"),
     "lab.um_forward": ("the weekly forward looks of a frozen lab champion: replays a frozen configuration over new "
                        "data at a registered look; no feature of its own (test_um_forward)"),
+    "lab.pilot_params": ("the pilot's settings study: steps the frozen overlay's targets (overlay.compute_targets, "
+                         "checked here) through the shared broker with the runtime's stop, pause and latches, and "
+                         "picks a setting per year from the years before it; no feature of its own "
+                         "(test_pilot_params)"),
     "lab.um_monthly": ("the lab's monthly re-selection: periods from a snapshot's end date and the judge's run; no "
                        "feature of its own (test_um_monthly); the ideas it runs go through lab.um_judge's final check"),
     "lab.um_lab": ("the research lab's harness: snapshot loading, replays through the shared broker, portfolio "
