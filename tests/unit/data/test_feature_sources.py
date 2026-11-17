@@ -152,3 +152,36 @@ def test_a_snapshot_directory_must_be_new_and_its_manifest_lists_every_file(tmp_
     assert manifest["files"]["a.csv.gz"]["rows"] == 2 and manifest["end_exclusive"] == "2024-01-02T00:00:00+00:00"
     assert gzip.decompress(raw).decode().splitlines() == ["t,v", "1,2", "3,4"]
     assert json.loads((tmp_path / "new" / "manifest.json").read_text()) == manifest
+
+
+def test_a_cut_off_read_is_retried_and_a_404_is_not():
+    import http.client
+    calls = []
+
+    def flaky(url):
+        calls.append(url)
+        if len(calls) < 3:
+            raise http.client.IncompleteRead(b"x", 10)
+        return b"ok"
+    assert fs.retrying(flaky, attempts=4, pause=0)("u") == b"ok" and len(calls) == 3
+    with pytest.raises(urllib.error.HTTPError):
+        fs.retrying(Fetch(), attempts=4, pause=0)("missing")
+    gone = []
+
+    def always_cut(url):
+        gone.append(url)
+        raise http.client.IncompleteRead(b"", 5)
+    with pytest.raises(http.client.IncompleteRead):
+        fs.retrying(always_cut, attempts=2, pause=0)("u")
+    assert len(gone) == 2
+
+
+def test_a_finished_source_is_kept_for_the_next_attempt(tmp_path):
+    made = []
+
+    def rows():
+        made.append(1)
+        return [(1, 2.5), (3, 4.25)]
+    first = fs.staged(tmp_path, "a.csv.gz", ("t", "v"), rows)
+    second = fs.staged(tmp_path, "a.csv.gz", ("t", "v"), lambda: pytest.fail("made again"))
+    assert len(made) == 1 and [tuple(map(str, r)) for r in first] == [tuple(r) for r in second]

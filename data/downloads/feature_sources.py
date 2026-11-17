@@ -26,8 +26,10 @@ import argparse
 import csv
 import gzip
 import hashlib
+import http.client
 import io
 import json
+import time
 import urllib.error
 import zipfile
 from collections.abc import Callable, Iterable, Sequence
@@ -54,6 +56,41 @@ CM_METRICS = ("FlowInExNtv", "FlowOutExNtv", "SplyExNtv", "AdrActCnt", "TxCnt", 
 CM_ASSETS = ("btc", "eth")
 SPOT_FIRST, PREMIUM_FIRST = "2017-08", "2020-01"
 DVOL_FIRST, CM_FIRST = date(2021, 1, 1), date(2017, 1, 1)
+
+
+def retrying(fetch: Fetch, *, attempts: int = 5, pause: float = 5.0) -> Fetch:
+    """``fetch`` again when a read is cut off or the connection drops (http_get retries HTTP errors itself); an HTTP
+    error, a 404 included, goes to the caller at once."""
+    def get(url: str) -> bytes:
+        for attempt in range(attempts):
+            try:
+                return fetch(url)
+            except urllib.error.HTTPError:
+                raise
+            except (http.client.HTTPException, OSError):
+                if attempt == attempts - 1:
+                    raise
+                time.sleep(pause * (attempt + 1))
+        raise AssertionError("unreachable")
+    return get
+
+
+def staged(stage: Path, name: str, header: tuple, make: Callable[[], list]) -> list:
+    """The rows of one source: read back from ``stage`` when an earlier attempt finished it, else made and kept
+    there, so a failure later in a long download loses nothing already done."""
+    path = Path(stage) / name
+    if path.exists():
+        with gzip.open(path, "rt", newline="") as handle:
+            return [tuple(r) for r in list(csv.reader(handle))[1:]]
+    rows = make()
+    Path(stage).mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    with gzip.open(tmp, "wt", newline="") as handle:
+        writer = csv.writer(handle, lineterminator="\n")
+        writer.writerow(header)
+        writer.writerows(rows)
+    tmp.replace(path)
+    return rows
 
 
 def ms(day: date) -> int:
@@ -286,54 +323,61 @@ def write_snapshot(out: Path, files: dict[str, tuple[tuple, Iterable[tuple]]], e
 
 
 def download(out: Path, end: date, *, fetch: Fetch = http_get, workers: int = 4) -> dict:
+    """Every source, each kept in ``<out>.partial`` as soon as it is done (a rerun after a failure resumes there),
+    then the snapshot and its manifest; the staging directory is removed at the end."""
     end_ms = ms(end)
+    fetch = retrying(fetch)
+    stage = Path(str(out) + ".partial")
     files: dict[str, tuple[tuple, Any]] = {}
     sources: dict[str, dict] = {}
     started = datetime.now(timezone.utc).isoformat()
+
+    def add(name: str, header: tuple, make: Callable[[], list], meta: dict) -> None:
+        files[name] = (header, staged(stage, name, header, make))
+        sources[name] = meta
+        print(name, len(files[name][1]), "rows", flush=True)
+    last = end - timedelta(1)
     for symbol in SYMBOLS:
-        files[f"{symbol}_spot_1h.csv.gz"] = (("open_time", "open", "high", "low", "close", "volume", "quote_volume",
-                                              "trades", "taker_buy_quote_volume"),
-                                             spot_klines(symbol, months(SPOT_FIRST, end), end_ms, fetch=fetch))
-        sources[f"{symbol}_spot_1h.csv.gz"] = {"source": f"{VISION}/spot/monthly/klines/{symbol}/1h",
-                                               "known": "open_time + 1 h"}
-        files[f"{symbol}_premium_1h.csv.gz"] = (("open_time", "open", "high", "low", "close"),
-                                                premium_klines(symbol, months(PREMIUM_FIRST, end), end_ms, fetch=fetch))
-        premium = f"{VISION}/futures/um/monthly/premiumIndexKlines/{symbol}/1h"
-        sources[f"{symbol}_premium_1h.csv.gz"] = {"source": premium, "known": "open_time + 1 h"}
-        last = end - timedelta(1)
+        add(f"{symbol}_spot_1h.csv.gz", ("open_time", "open", "high", "low", "close", "volume", "quote_volume",
+                                         "trades", "taker_buy_quote_volume"),
+            lambda s=symbol: spot_klines(s, months(SPOT_FIRST, end), end_ms, fetch=fetch),
+            {"source": f"{VISION}/spot/monthly/klines/{symbol}/1h", "known": "open_time + 1 h"})
+        add(f"{symbol}_premium_1h.csv.gz", ("open_time", "open", "high", "low", "close"),
+            lambda s=symbol: premium_klines(s, months(PREMIUM_FIRST, end), end_ms, fetch=fetch),
+            {"source": f"{VISION}/futures/um/monthly/premiumIndexKlines/{symbol}/1h", "known": "open_time + 1 h"})
         first = first_day(lambda d, s=symbol: depth_url(s, d), date(2020, 1, 1), last, fetch=fetch)
-        rows = book_depth(symbol, days(first, end), end_ms, fetch=fetch, workers=workers) if first else []
-        files[f"{symbol}_depth_1h.csv.gz"] = (("hour", "percentage", "mean_notional", "last_notional"), rows)
-        sources[f"{symbol}_depth_1h.csv.gz"] = {"source": f"{VISION}/futures/um/daily/bookDepth/{symbol}",
-                                                "first_day": first.isoformat() if first else None,
-                                                "known": "hour + 1 h (snapshots taken in [hour, hour + 1 h))"}
+        add(f"{symbol}_depth_1h.csv.gz", ("hour", "percentage", "mean_notional", "last_notional"),
+            lambda s=symbol, f=first: book_depth(s, days(f, end), end_ms, fetch=fetch, workers=workers) if f else [],
+            {"source": f"{VISION}/futures/um/daily/bookDepth/{symbol}",
+             "first_day": first.isoformat() if first else None,
+             "known": "hour + 1 h (snapshots taken in [hour, hour + 1 h))"})
     for symbol in BVOL:
-        last = end - timedelta(1)
         first = first_day(lambda d, s=symbol: bvol_url(s, d), date(2020, 1, 1), last, fetch=fetch)
-        rows = bvol(symbol, days(first, end), end_ms, fetch=fetch, workers=workers) if first else []
-        files[f"{symbol}_1h.csv.gz"] = (("hour", "last_value"), rows)
-        sources[f"{symbol}_1h.csv.gz"] = {"source": f"{VISION}/option/daily/BVOLIndex/{symbol}",
-                                          "first_day": first.isoformat() if first else None,
-                                          "known": "hour + 1 h (the last value in [hour, hour + 1 h))"}
+        add(f"{symbol}_1h.csv.gz", ("hour", "last_value"),
+            lambda s=symbol, f=first: bvol(s, days(f, end), end_ms, fetch=fetch, workers=workers) if f else [],
+            {"source": f"{VISION}/option/daily/BVOLIndex/{symbol}", "first_day": first.isoformat() if first else None,
+             "known": "hour + 1 h (the last value in [hour, hour + 1 h))"})
     for currency in DVOL:
-        files[f"{currency}_dvol_1h.csv.gz"] = (("open_time", "open", "high", "low", "close"),
-                                               dvol(currency, ms(DVOL_FIRST), end_ms, fetch=fetch))
-        sources[f"{currency}_dvol_1h.csv.gz"] = {"source": f"{DERIBIT} (resolution 3600)", "known": "open_time + 1 h"}
+        add(f"{currency}_dvol_1h.csv.gz", ("open_time", "open", "high", "low", "close"),
+            lambda c=currency: dvol(c, ms(DVOL_FIRST), end_ms, fetch=fetch),
+            {"source": f"{DERIBIT} (resolution 3600)", "known": "open_time + 1 h"})
     for series, lag in FRED_LAG_DAYS.items():
-        files[f"fred_{series}.csv.gz"] = (("date", "value"), fred(series, end_ms, fetch=fetch))
-        sources[f"fred_{series}.csv.gz"] = {"source": fred_url(series),
-                                            "known": f"date + {lag} days 00:00 UTC (release schedule unverified)"}
-    files["stablecoins_usd.csv.gz"] = (("date", "total_usd"), stablecoins(end_ms, fetch=fetch))
-    sources["stablecoins_usd.csv.gz"] = {"source": STABLECOINS, "known": "date + 1 day 00:00 UTC",
-                                         "caveat": "revised after first publication"}
+        add(f"fred_{series}.csv.gz", ("date", "value"), lambda x=series: fred(x, end_ms, fetch=fetch),
+            {"source": fred_url(series), "known": f"date + {lag} days 00:00 UTC (release schedule unverified)"})
+    add("stablecoins_usd.csv.gz", ("date", "total_usd"), lambda: stablecoins(end_ms, fetch=fetch),
+        {"source": STABLECOINS, "known": "date + 1 day 00:00 UTC", "caveat": "revised after first publication"})
     for asset in CM_ASSETS:
-        files[f"coinmetrics_{asset}.csv.gz"] = (("date", *CM_METRICS),
-                                                coinmetrics(asset, CM_METRICS, CM_FIRST, end_ms, fetch=fetch))
-        sources[f"coinmetrics_{asset}.csv.gz"] = {"source": COINMETRICS, "known": "date + 2 days 00:00 UTC",
-                                                  "caveat": "flash values are revised: history is the revised value"}
+        add(f"coinmetrics_{asset}.csv.gz", ("date", *CM_METRICS),
+            lambda a=asset: coinmetrics(a, CM_METRICS, CM_FIRST, end_ms, fetch=fetch),
+            {"source": COINMETRICS, "known": "date + 2 days 00:00 UTC",
+             "caveat": "flash values are revised: history is the revised value"})
     extra = {"downloaded_at": started, "finished_at": datetime.now(timezone.utc).isoformat(),
              "purpose": "feature-pool study (owner 2026-11-17)", "terms": "each source's terms of use unverified"}
-    return write_snapshot(out, files, end_ms, sources=sources, extra=extra)
+    manifest = write_snapshot(out, files, end_ms, sources=sources, extra=extra)
+    for path in stage.glob("*"):
+        path.unlink()
+    stage.rmdir()
+    return manifest
 
 
 def main(argv: list[str] | None = None) -> None:
