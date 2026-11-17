@@ -110,10 +110,12 @@ class StopVariant:
 
     def __post_init__(self) -> None:
         stop = D(self.stop_pct)
-        if self.reenter not in ("pause", "signal_reset") or stop < 0:
+        if self.reenter not in ("pause", "signal_reset", "pause_then_reset") or stop < 0:
             raise ValueError(f"not a stop variant: {self}")
         if self.reenter == "signal_reset" and (self.pause_hours is not None or stop == 0):
             raise ValueError(f"signal_reset needs a stop and takes no pause: {self}")
+        if self.reenter == "pause_then_reset" and (not self.pause_hours or stop == 0):
+            raise ValueError(f"pause_then_reset needs a stop and a pause: {self}")
         if stop == 0 and self.pause_hours is not None:
             raise ValueError(f"no stop, nothing to pause after: {self}")
         if self.vol_k is not None and (not D(self.vol_k).is_finite() or D(self.vol_k) <= 0 or stop == 0):
@@ -123,7 +125,8 @@ class StopVariant:
     def name(self) -> str:
         if D(self.stop_pct) == 0:
             return "nostop"
-        after = "signal_reset" if self.reenter == "signal_reset" else f"pause{self.pause_hours or 0}h"
+        after = "signal_reset" if self.reenter == "signal_reset" else f"pause{self.pause_hours or 0}h" + \
+            ("_then_reset" if self.reenter == "pause_then_reset" else "")
         if self.vol_k is not None:
             return f"vol{self.vol_k}x_cap{self.stop_pct}_{after}"
         return f"stop{self.stop_pct}_{after}"
