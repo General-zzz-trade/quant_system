@@ -1,0 +1,122 @@
+[
+ [
+  "parse default is reset",
+  "trading/domain/strategy/spec.py",
+  "document.get(\"after_stop\", AFTER_STOP_PAUSE)",
+  "document.get(\"after_stop\", \"pause_then_reset\")"
+ ],
+ [
+  "no value check",
+  "trading/domain/strategy/spec.py",
+  "    if type(after_stop) is not str or after_stop not in AFTER_STOP_RULES:\n",
+  "    if False:\n"
+ ],
+ [
+  "identity without the rule",
+  "trading/domain/strategy/spec.py",
+  "        return record if self.after_stop == AFTER_STOP_PAUSE else {**record, \"after_stop\": self.after_stop}",
+  "        return record"
+ ],
+ [
+  "record without the rule",
+  "trading/domain/strategy/spec.py",
+  "        return out if self.after_stop == AFTER_STOP_PAUSE else {**out, \"after_stop\": self.after_stop}",
+  "        return out"
+ ],
+ [
+  "identity always with the rule",
+  "trading/domain/strategy/spec.py",
+  "        return record if self.after_stop == AFTER_STOP_PAUSE else {**record, \"after_stop\": self.after_stop}",
+  "        return {**record, \"after_stop\": self.after_stop}"
+ ],
+ [
+  "person release counts",
+  "trading/adapters/sqlite/entry_pause.py",
+  "if row is None or row[\"release_reason\"] != SCHEDULED_END or row[\"released_at\"] is None:",
+  "if row is None or row[\"released_at\"] is None:"
+ ],
+ [
+  "running pause counts",
+  "trading/adapters/sqlite/entry_pause.py",
+  "return float(row[\"paused_at\"]) if float(row[\"released_at\"]) <= float(self.clock()) else None",
+  "return float(row[\"paused_at\"])"
+ ],
+ [
+  "earliest row",
+  "trading/adapters/sqlite/entry_pause.py",
+  "\"ORDER BY paused_at DESC, rowid DESC LIMIT 1\"",
+  "\"ORDER BY paused_at ASC, rowid ASC LIMIT 1\""
+ ],
+ [
+  "not-ready zero counts",
+  "trading/application/session.py",
+  "        if ready and weight == 0.0:\n",
+  "        if weight == 0.0:\n"
+ ],
+ [
+  "zero never recorded",
+  "trading/application/session.py",
+  "            self.flat_target_at = bar.available_at\n",
+  "            pass\n"
+ ],
+ [
+  "rule for every spec",
+  "trading/application/exit_supervisor.py",
+  "            if session is None or session.after_stop != AFTER_STOP_PAUSE_THEN_RESET:\n",
+  "            if session is None:\n"
+ ],
+ [
+  "held position waits",
+  "trading/application/exit_supervisor.py",
+  "            if since is None or session.position_qty() != 0:\n",
+  "            if since is None:\n"
+ ],
+ [
+  "never waits",
+  "trading/application/exit_supervisor.py",
+  "            return None if seen is not None and seen > since * 1000 else RESET_WAIT\n",
+  "            return None\n"
+ ],
+ [
+  "a 0 before the stop counts",
+  "trading/application/exit_supervisor.py",
+  "            return None if seen is not None and seen > since * 1000 else RESET_WAIT\n",
+  "            return None if seen is not None else RESET_WAIT\n"
+ ],
+ [
+  "unreadable passes",
+  "trading/application/exit_supervisor.py",
+  "        except Exception:\n            return \"unreadable\"",
+  "        except Exception:\n            return None"
+ ],
+ [
+  "alert silent",
+  "trading/application/exit_supervisor.py",
+  "            then = \"\" if session.after_stop != AFTER_STOP_PAUSE_THEN_RESET else \\\n",
+  "            then = \"\" if True else \\\n"
+ ],
+ [
+  "execution not wired",
+  "trading/infrastructure/cli/target.py",
+  "                                         after_stop=self.target_spec.after_stop), kill",
+  "                                         ), kill"
+ ],
+ [
+  "paper not wired",
+  "trading/infrastructure/cli/target.py",
+  "                                           after_stop=self.target_spec.after_stop)",
+  "                                           )"
+ ],
+ [
+  "sessions not wired",
+  "trading/infrastructure/target.py",
+  "                                after_stop=after_stop,\n",
+  ""
+ ],
+ [
+  "paper query not passed",
+  "trading/infrastructure/paper.py",
+  "        return self.inner.ended_by_itself(symbol)\n",
+  "        return None\n"
+ ]
+]

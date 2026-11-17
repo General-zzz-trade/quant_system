@@ -12,6 +12,7 @@ import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
+from functools import partial
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -42,6 +43,8 @@ from trading.application.risk.order_limiter import OrderLimiter
 from trading.application.risk.readiness import EntryReadinessGate
 from trading.application.session import ExecutionParts, LotRules, SizingEquity, TargetSession
 from trading.application.execution.recorded_journal import RecordedOrderJournal
+from trading.application.reset_wait import waits_for_reset
+from trading.domain.issues import AFTER_STOP_PAUSE
 from trading.domain.orders import LIMIT_OFFSET_BPS, OrderIntent
 from trading.domain.strategy.base import Strategy
 from trading.domain.rebalance import Lot
@@ -175,7 +178,8 @@ def strategy_positions(ledger: SqliteOrderJournal, owners: list[str]) -> list[tu
 def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir: Path, journal: EventLog,
                        equity: EquitySource, inputs: ExecutionInputs, clock: Clock = time.time,
                        policy: ModePolicy = EXECUTION, paper: PaperParts | None = None,
-                       strategy: Strategy | None = None, allow_short: bool | None = None) -> ExecutionWiring:
+                       strategy: Strategy | None = None, allow_short: bool | None = None,
+                       after_stop: str = AFTER_STOP_PAUSE) -> ExecutionWiring:
     """The sessions of either mode: paper differs only by ``policy`` and the ``paper`` parts it needs."""
     if (paper is None) != (policy.sizing_equity == "account_share" and policy.limiter_clock == "monotonic"):
         raise ValueError("per-symbol sizing and the bar-time gate clock need the paper parts, and only they")
@@ -198,7 +202,12 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
         if pauses.reason(symbol) is not None:
             return True
         stops = stops_of.get(symbol)
-        return stops is None or bool(set(stops.triggers()) - pauses.covered(symbol))
+        if stops is None or bool(set(stops.triggers()) - pauses.covered(symbol)):
+            return True
+        # The wait for the strategy's reset after a stop (tech lead 2026-11-17), here too, so a refused entry never
+        # reaches the order limiter's daily counts (audit of PR #142, finding 1). A read that fails raises: refused.
+        session = sessions.get(symbol)
+        return session is not None and waits_for_reset(session, pauses)
 
     limiter = OrderLimiter(OrderLimitsConfig(max_order_notional=limits.max_order_notional,
                                              max_daily_notional=limits.max_daily_notional,
@@ -268,8 +277,10 @@ def execution_sessions(spec: StrategySpec, symbols: Sequence[str], *, state_dir:
         sizing: SizingEquity = paper.symbol_equity(symbol) if paper is not None else (capped or equity)
         session = TargetSession(symbol, spec, journal=journal, rules=rules[symbol], make_order=OrderIntent,
                                 allocation=allocation, strategy=strategy, allow_short=allow_short,
+                                after_stop=after_stop,
                                 execution=ExecutionParts(executor, TargetFillConsumer(executor, journal), stops, None,
                                                          sizing, Flattener(symbol, executor, account, journal, clock)))
+        session.entered_since = partial(orders.entry_filled_since, owner)
         session.restore_pending()
         executor.on_status(session._on_status)
         session.gate = EntryReadinessGate(session, gate)

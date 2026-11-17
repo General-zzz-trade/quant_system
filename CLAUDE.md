@@ -280,7 +280,11 @@ that reads the environment. The entry point reads it once into a frozen `Runtime
     PnL and funding income (`CappedEquity`, `StrategyFunding`), never above the account's equity and under the 3x
     exposure cap; and a stop's entry pause
     (triggered or breached stop) ends by itself after 4 hours (`STOP_PAUSE_SECONDS`, the same in the lab's
-    `LiveTerms`). A person can end it earlier; a restore's pause still waits for a person.
+    `LiveTerms`). A person can end it earlier; a restore's pause still waits for a person. A spec with
+    `"after_stop": "pause_then_reset"` (owner 2026-11-17, only ever stricter) also keeps a flat symbol's entries
+    blocked after that pause until its strategy has decided a target of 0 since the stop (the lab's
+    `reenter_after_stop="pause_then_reset"`); a 0 seen before a restart is not remembered, so the symbol waits for the
+    next one.
 - **Signed artifacts:** model artifacts (pickle and JSON, including `config.json` and strategy specs)
   load only through `infra/model_signing.py`.
 - **Fail closed:** unreadable pause, kill or drawdown state blocks new exposure.

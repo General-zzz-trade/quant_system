@@ -180,7 +180,8 @@ class TargetRuntime(_runtime.TargetRuntime):
         wiring = target.execution_sessions(spec, symbols, state_dir=self.state_dir, journal=journal,
                                            equity=self.equity, inputs=inputs, clock=self.clock, policy=PAPER,
                                            paper=parts, strategy=strategy,
-                                           allow_short=self.target_spec.allow_short)
+                                           allow_short=self.target_spec.allow_short,
+                                           after_stop=self.target_spec.after_stop)
         for symbol, session in wiring.sessions.items():
             session.sleeve = SimpleNamespace(broker=venue.broker(symbol))    # read-only, for people and tests
         return store, wiring, kill
@@ -202,7 +203,8 @@ class TargetRuntime(_runtime.TargetRuntime):
                                         tca_log=tca)
         return target.execution_sessions(spec, symbols, state_dir=self.state_dir, journal=journal,
                                          equity=self.equity, inputs=inputs, clock=self.clock,
-                                         strategy=strategy, allow_short=self.target_spec.allow_short), kill
+                                         strategy=strategy, allow_short=self.target_spec.allow_short,
+                                         after_stop=self.target_spec.after_stop), kill
 
 
 def main(argv: list[str] | None = None, *, load_spec: SpecLoader,
