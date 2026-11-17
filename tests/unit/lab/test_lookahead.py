@@ -26,6 +26,8 @@ from lab import candidates as c
 from lab import candidates_study as cs
 from lab import overlay_risk_study as rs
 from lab import pair_study as ps
+from lab import um_lab
+from lab import xs_study as xs
 from lab.causality import check, variants, violations
 from lab.overlay_study import SPEC as OVERLAY
 from tests.unit.lab.test_pair_study import write_snapshot
@@ -111,6 +113,13 @@ def _idea_windows(m):
 IDEA_CHECK_PARAMS = {"E1_squeeze_breakout": {"r": 0.9}}     # a parameter set the 280-day check data can reach
 
 
+def _xs(fn, params):
+    """A lab/xs_study.py idea on the check's six windows, through the judge's ``legacy`` wrapper."""
+    def case(m):
+        return um_lab.legacy(fn, cross=True, reads=(BTC,))(params).history(_idea_windows(m))
+    return case
+
+
 def _idea(name):
     """One lab idea on the check's windows, as the runtime and the lab's judge call it (R7b)."""
     def case(m):
@@ -166,12 +175,15 @@ CASES = [
      lambda m: rs.hourly_targets(m["hourly"], rs.VARIANTS["combined"])),
     # every idea through IdeaStrategy.history; lab_frame (the ideas' input) is the module's checked function
     *((f"ideas.{name}", lab_ideas.lab_frame, _idea(name)) for name in lab_ideas.IDEAS),
+    # the 2026-11-17e cross-sectional ideas as the judge replays them (research functions behind the interface)
+    *((f"xs_study.{name}", fn, _xs(fn, grid[0])) for name, (fn, grid) in xs.IDEAS.items()),
+    ("xs_study.efficiency", xs.efficiency, lambda m: xs.efficiency(c.daily_close(m["hourly"][BTC]), 30)),
 ]
 
 # -- the registry ---------------------------------------------------------------------------------------------------
 FEATURE_MODULES = ("trading.domain.market", "trading.domain.strategy.overlay", "trading.domain.strategy.ideas",
                    "lab.breakout", "lab.candidates",
-                   "lab.candidates_study", "lab.overlay_risk_study", "lab.pair", "lab.pair_study")
+                   "lab.candidates_study", "lab.overlay_risk_study", "lab.pair", "lab.pair_study", "lab.xs_study")
 OTHER_MODULES = {
     "lab": "package marker",
     "trading.domain.strategy.spec": "parses and checks the signed spec (runtime extension R2); computes no feature",
