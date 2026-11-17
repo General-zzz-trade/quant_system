@@ -19,5 +19,10 @@ Restart=no
 StandardOutput=append:/quant_system/logs/binance_target_mainnet.log
 StandardError=append:/quant_system/logs/binance_target_mainnet.log
 MemoryMax=1024M
+# The trading process runs ahead of research on a shared host (2026-11-17): research jobs run at nice 19
+# (scripts/dev/lab_nice.sh); this one gets the CPU and the disk first.
+Nice=-5
+CPUWeight=1000
+IOWeight=1000
 
 # No [Install] section: this unit can never be enabled to start at boot.

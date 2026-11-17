@@ -4837,3 +4837,68 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
 - **修复的变异自检**【实际运行结果】：`scripts/dev/mutants/funding_store_audit_fixes.json` 原来 10 个，9 个被杀。
   存活的"`_stored()` 里不检查断档"是等价变异：`last_known()` 在调用它之前已经检查，刷新时读取会先失败。
   所以删掉这处重复的检查，`_stored()` 的说明写明原因，变异文件去掉这一条。剩下 9 个全部被杀，9/9。
+## 试运行前一键检查（2026-11-17，轻流程：只读工具）
+
+- **决定**：技术负责人 2026-11-17 选了"试运行前一键检查"。
+- **改了什么**：
+  - `python3 -m scripts.account_check --pilot --spec <签名规格> [--state-dir /var/lib/quant/state/mainnet]`，逻辑在新模块 `scripts/pilot_check.py`。
+    它在唯一被允许读凭证文件的工具里运行，只发白名单上的 GET 请求，不显示任何密钥。
+  - 逐项打 ✓ 或 ✗，最后写"可以启动"或"还缺 N 项"。检查的内容：
+    - 设置：启动时的配置检查、主网、日亏限额 3%（代码默认是 5%）、签名密钥、告警文件夹能写、策略资金。
+    - 规格：签名对得上（用和 `infra.model_signing` 相同的 HMAC-SHA256，密钥只在内存里）、`passed` 为 true、运行时的解析器能读。
+    - 状态目录：运行时的启动检查，包括数据库版本。
+    - 账户：没有任何仓位；没有挂单和条件单；单向持仓模式；规格里每个品种的杠杆和保证金模式和设置一致；USDT 余额不少于策略资金。
+- **已有测试的改动**：没有。
+- **新增测试**：`tests/unit/tooling/test_pilot_check.py` 9 个函数（一个参数化 5 例），共 13 例：
+  - 全部就绪时通过，输出里没有密钥，只用白名单路径；
+  - 缺少的设置会被点名；
+  - 任何仓位或挂单都会被点名；
+  - 品种的杠杆或保证金模式不对；
+  - 规格没签名、没标记通过或被改过；
+  - 状态目录没通过检查；告警文件夹不能写；余额不够；对冲持仓模式。
+- **本地**【实际运行结果】：`tests/unit/tooling`、`tests/architecture` 通过；ruff、`lint-imports` 通过。
+- **用法**：资金费存储合并之后（状态库第 2 版），先在主机上迁移状态目录，再跑这个检查；全部 ✓ 之后，启动仍由技术负责人决定。
+
+## 文档更新（2026-11-17，轻流程：只改文档）
+
+技术负责人 2026-11-17 说"更新项目文档"。把今天合并的改动（#132、#135–#146）写进文档：
+- `CLAUDE.md`：
+  - 现状改到 2026-11-17：运行时扩展计划已完成；`after_stop` 规则和一键检查已合并；资金费存储在审计中。
+  - 前向检验加上实验室冠军 E3：冻结的内容、4 次查看、"还成立"的标准。
+  - 实验室一段加上：11-17 这一轮的结论（止损后怎么重新开仓比止损距离更重要）、已登记的下一轮（2026-11-17b）、
+    按波动率收紧止损的回测、每月重选的定时任务和规格草稿工具。
+  - 命令清单加上 `account_check --pilot`、`live_fills`、`lab.um_monthly`、`lab.um_forward`、`draft_strategy_spec`。
+- `README.md`：现状、E3、`after_stop`、一键检查、安全默认值里的例外。
+- `docs/arch/target.md`：
+  - 退出侧加"等策略重置"，包结构加 `reset_wait.py`；
+  - 第 2 版规格加可选的 `after_stop`，以及规格草稿工具；
+  - 研究侧加 2026-11-17 起的实验室工具。
+- `docs/binance_runbook.md`：规格的 `after_stop` 和草稿工具；启动前一键检查（启动步骤变成第 6 步）；怎样结束"等策略目标回到 0"。
+- `docs/m5_checklist.md`：启动前先跑一键检查；每日对照真实成交的命令。
+- `research/lab/README.md`：
+  - 2020 年起的快照和传统金融合约；第二种止损后规则和按波动率的止损；
+  - 两种切分；2026-11-17b 起更高的淘汰线和组合；
+  - 前向跟踪的工具、标准和正在跟踪的 E3。
+- `docs/arch/runtime-lab-strategies-plan.md`：标记计划全部完成。
+- 资金费存进状态库的文档改动在 #147 里，随它一起合并。
+
+## 主机：实盘优先于研究，清理过期配置和闲置目录（2026-11-17，轻流程）
+
+技术负责人 2026-11-17 说"执行"：做从软件工程角度评估里的前两项，限制回测的 CPU 占用、清理过期配置和闲置目录。
+- **实盘优先**：
+  - 测试网和主网两个执行服务加 `Nice=-5`、`CPUWeight=1000`、`IOWeight=1000`。用 `systemd-analyze verify` 校验过，
+    主机要再跑一次 `infra/install_host.sh` 才生效（它不启动任何服务）。
+  - 新增 `scripts/dev/lab_nice.sh`：研究任务以 nice 19、磁盘空闲级运行；`research/lab/README.md` 和 `CLAUDE.md` 写明一律用它。
+  - 正在跑的两轮回测已就地降到 nice 19（`renice`、`ionice -c3`）。
+  - 新增测试：`test_systemd_units.py::test_the_execution_units_run_ahead_of_research_on_a_shared_host`。
+- **过期配置**（`pyproject.toml`）：
+  - 删掉给 2026-11-15 已删除的包（core、regime、state、decision、engine、event、features、execution、alpha、attribution）的类型检查覆盖；
+  - 覆盖率的 `source` 改为现在存在的包（trading、lab、data、infra、monitoring、runner）；CI 自己用 `--cov` 指定资金路径的包，不受影响；
+  - "核心逻辑零外部依赖"这句注释不对（交易系统和实验室都用 numpy、pandas），改正。
+  - 可以去掉、但这次没动的可选依赖：websocket-client、python-dotenv、pyyaml、pyarrow、yfinance、ccxt、matplotlib、aiohttp、websockets。
+    仓库里没有任何文件导入它们（scipy 有 4 个文件在用）。改依赖会影响安装，另行处理。
+- **闲置目录**（主机上，不在仓库里）：
+  - 删了 18 个工作目录：17 个对应已合并的 PR，`r9-docs` 的内容已由 #139 合并，它的分支保留；
+  - 删了 17 个已合并的本地分支、一个残留的变异自检工作目录；
+  - 删了 `/tmp` 里 200 多个变异自检残留目录，以及 19 个已结束的审计克隆。正在用的审计克隆和两轮回测的目录都保留。
+- **本地**【实际运行结果】：`test_systemd_units.py`、`test_unit_alert.py`、`test_alert_file.py` 通过；`mypy trading/`（97 个文件）通过；`pyproject.toml` 能解析。

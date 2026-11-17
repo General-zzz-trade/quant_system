@@ -1,12 +1,13 @@
 # quant_system — project instructions
 
-## Current status (2026-11-16) — read first
+## Current status (2026-11-17) — read first
 
 - **Not approved for live trading. No strategy has a verified edge.** Older Sharpe/return figures in docs,
   configs, `models_v8/` or commit messages are unverified claims, not results.
 - **Engineering:** every migration step before M5 (S1–S12) is merged and audited (2026-11-16). The runtime
-  extension (`docs/arch/runtime-lab-strategies-plan.md`) has R1–R7 done on stacked PRs #119–#130, not merged yet;
-  the R8 audit is in progress.
+  extension (`docs/arch/runtime-lab-strategies-plan.md`) is done: R1–R7 (#119–#130), its audit fixes (#126, #134)
+  and the docs (R9, #139). 2026-11-17: the spec's `after_stop: pause_then_reset` (#142, audited), the pilot's start
+  check `account_check --pilot` (#146); the funding kept in the state database (#147) is under audit.
 - **Path to live (owner, 2026-11-16):** no paper and no testnet stage. A strategy that passes the lab's backtest
   checks goes to a small-capital mainnet pilot with hard limits (-3 % a day: `MAX_DAILY_DRAWDOWN_PCT=3`, which a person sets, the code default is 5; a 15 % cumulative loss of the strategy
   capital flattens and stops; kill switch); the owner scales it. This replaces the 4-week testnet run of M5; the checks that could only be made on the testnet
@@ -59,6 +60,13 @@
   - All four are judged at the looks in `research/forward_looks.jsonl` (2027-02-13 report only, 2027-05-13
     decision). For the three new ones a pass only extends the test to 12 months
     (`research/protocols/2026-11-14-forward-candidates.md`).
+  - The lab champion of 2026-11-17, `E3_vol_target_trend` (long only, sized by volatility; 8 % stop, re-entry after
+    the signal resets), unverified: walk-forward Sharpe 0.62, holdout +8.2 % over 6 months, but a deflated Sharpe
+    probability of 0.03 over 1092 configurations (`research/lab/runs/2026-11-17/judge.md`). Frozen
+    (`research/lab/runs/2026-11-17/forward_e3.json`) and tracked from 2026-11-18 at 4 weekly registered looks
+    (2026-11-25, 12-02, 12-09, 12-16; `lab/um_forward.py`). It still holds while the lowest hourly equity since the
+    start stays above 92.5 % of the capital (owner 2026-11-17); only after 4 holds may a pilot be prepared, with a
+    spec that carries `after_stop: pause_then_reset` (`research/protocols/2026-11-17-lab-forward-e3.md`).
 - **Closed lines:**
   - Hourly ML (`runner.offline research`): the validation-only re-check failed 2026-11-13
     (`research/results/ml_recheck_2026-11-13/`). Its code was deleted 2026-11-15 (M4); the last version is
@@ -108,6 +116,17 @@
   testnet stage (owner, 2026-11-16, see Path to live); real money waits for the owner's "go live"; the existing audited runtime
   and process are used (no AgenKit), and risk and execution stay deterministic code (the sentinel's stops:
   -3 % a day, the 15 % cumulative loss stop, a stale feed).
+  - 2026-11-17 (`research/lab/runs/2026-11-17/`): the run on the 2020+ snapshot named E3 (above). Across the years
+    what helps most is how a position is re-entered after a stop, not the stop's distance: waiting for the signal
+    to reset beats the 4-hour pause for 8 of the top 10 ideas (`stop_stability.json`, `pause_then_reset_results.md`).
+  - The next round, registered before any result (`research/lab/runs/2026-11-17b/plan.md`, owner 2026-11-17):
+    lists of contracts listed at least a year, Binance's TradFi contracts excluded; only the 6 stop rules the runtime
+    can run; an idea must beat holding BTC and holding BTC with position control, with a deflated Sharpe probability
+    of at least 0.5 over every configuration tried on the snapshot; and a portfolio chosen fold by fold
+    (`lab/um_portfolio.py`). A volatility-tightened stop (`vol_stop.md`) runs beside it.
+  - Monthly re-selection on new data (owner 2026-11-17): a scheduled task on the 8th of each month, 13:23
+    Asia/Shanghai (`lab/um_monthly.py`); a champion's spec is drafted with `scripts.draft_strategy_spec` (always
+    `passed: false`) and tracked 4 weeks before a person publishes it.
 - **Defaults:** paper/dry-run; Binance testnet; CI never deploys; deploy is manual.
 
 ## Commands
@@ -122,6 +141,11 @@ python3 scripts/dev/mutate.py "<tests>" <mutants.json> [jobs]   # mutation self-
 python -m lab.overlay_study --out <empty dir>      # overlay screen (development window only)
 python -m data.downloads.binance_public --start 2020-01-01   # -> new data_files/binance_public_<end>/
 python -m lab.paper_compare --paper-dir <paper dir> --data-dir <snapshot dir>   # paper vs research, fill by fill
+python3 -m scripts.account_check --pilot --spec <signed spec>   # the pilot's start check: what is still missing
+python3 -m scripts.live_fills --state-db <state.sqlite> --history <dir>   # pilot fills vs the backtest's assumptions
+python -m lab.um_monthly plan|screen|final --snapshot <dir> --run research/lab/runs/<date>   # monthly re-selection
+python -m lab.um_forward download|look --frozen <file> --study <name> --end <date> ...   # a champion's weekly look
+python3 -m scripts.draft_strategy_spec --run <run dir> --snapshot <dir>   # a champion's spec draft (passed false)
 python -m trading.infrastructure.state_dir --state-dir <dir> init     # once, before execution mode (RISK_SCOPE set)
 python -m trading.infrastructure.state_dir --state-dir <dir> restore --snapshot <file> --reason "..."  # lost DB only
 python -m trading.infrastructure.state_backup --state-dir <dir> --backup-dir <dir>   # what state-backup@ runs hourly
@@ -308,6 +332,8 @@ that reads the environment. The entry point reads it once into a frozen `Runtime
 
 ## Gotchas
 
+- **Research shares the host with the runtime:** run every backtest, screen or mutation run through
+  `scripts/dev/lab_nice.sh` (nice 19, idle disk); the execution units run at `Nice=-5`, `CPUWeight=1000` (2026-11-17).
 - **Fd8 fixed point:** state `.close` and `.last_price` are raw integers (price × 1e8). Use `close_f`
   and `last_price_f`.
 - **Bar timestamps:** adapter bar dicts carry `"time"` in seconds and `"start"` in milliseconds.
