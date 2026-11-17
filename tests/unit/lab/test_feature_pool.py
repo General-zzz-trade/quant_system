@@ -146,3 +146,20 @@ def test_the_market_breadth_counts_what_each_day_knows():
                                                              - np.log(up[-1] / up[-31]))
     cuts = [int(idx[35]), int(idx[50])]
     assert violations(lambda m: fp.market_breadth(m["c"], m["f"]), {"c": closes, "f": funding}, cuts) == []
+
+
+def test_the_market_panel_keeps_complete_days_before_the_limit_and_leaves_out_what_it_is_told(tmp_path):
+    import gzip
+    for symbol, price in (("BTCUSDT", 100.0), ("XAUUSDT", 2000.0), ("AUSDT", 1.0)):
+        t = T0 + np.arange(24 * 3 + 5, dtype=np.int64) * H                 # 3 whole days and 5 hours
+        with gzip.open(tmp_path / f"{symbol}_1h.csv.gz", "wt") as h:
+            pd.DataFrame({"open_time": t, "close": price + np.arange(len(t))}).to_csv(h, index=False)
+        ft = T0 + np.arange(12, dtype=np.int64) * 8 * H
+        with gzip.open(tmp_path / f"{symbol}_funding.csv.gz", "wt") as h:
+            pd.DataFrame({"funding_time": ft, "rate": 0.0001}).to_csv(h, index=False)
+    closes, funding = fp.load_market(tmp_path, T0 + 3 * DAY, exclude=frozenset({"XAUUSDT"}))
+    assert list(closes.columns) == ["AUSDT", "BTCUSDT"]
+    assert list(closes.index) == [T0 + DAY, T0 + 2 * DAY, T0 + 3 * DAY]   # the partial fourth day is not known
+    assert closes.loc[T0 + DAY, "BTCUSDT"] == 123.0
+    assert funding.loc[T0 + 3 * DAY, "BTCUSDT"] == pytest.approx(0.0001)
+    assert np.isnan(funding.loc[T0 + DAY, "BTCUSDT"])                      # fewer than 9 settlements by then

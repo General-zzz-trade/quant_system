@@ -331,6 +331,35 @@ def build(inputs: dict, asset: str, times: np.ndarray) -> pd.DataFrame:
     return pd.DataFrame({k: np.asarray(out[k], dtype=float) for k in FEATURES}, index=pd.Index(times))
 
 
+def load_market(snapshot: Path, limit: int, *, exclude: frozenset[str] = frozenset()) -> tuple[pd.DataFrame,
+                                                                                                    pd.DataFrame]:
+    """Daily closes and 3-day mean funding of every contract in a whole-market snapshot (``exclude`` left out), each
+    file read and reduced at once; rows known after ``limit`` dropped. Index: the day's end."""
+    closes, funding = {}, {}
+    for path in sorted(Path(snapshot).glob("*_1h.csv.gz")):
+        symbol = path.name[:-len("_1h.csv.gz")]
+        if symbol in exclude:
+            continue
+        h = pd.read_csv(path, usecols=["open_time", "close"])
+        h = h[h["open_time"] + H <= limit]
+        if h.empty:
+            continue
+        day = h["open_time"] // DAY
+        g = h.groupby(day)["close"]
+        full = g.count() == 24
+        c = g.last()[full]
+        closes[symbol] = pd.Series(c.to_numpy(float), index=(c.index.to_numpy(dtype=np.int64) + 1) * DAY)
+        fpath = path.with_name(f"{symbol}_funding.csv.gz")
+        if fpath.exists():
+            f = pd.read_csv(fpath, usecols=["funding_time", "rate"])
+            f = f[f["funding_time"] <= limit]
+            rates = pd.Series(f["rate"].to_numpy(float), index=f["funding_time"].to_numpy(dtype=np.int64))
+            f3 = rates.sort_index().rolling(9, min_periods=9).mean()
+            funding[symbol] = pd.Series(_last(f3, closes[symbol].index.to_numpy(np.int64), 9 * H),
+                                        index=closes[symbol].index)
+    return pd.DataFrame(closes).sort_index(), pd.DataFrame(funding).sort_index()
+
+
 def market_breadth(closes: pd.DataFrame, funding_3d: pd.DataFrame, btc: str = "BTCUSDT") -> pd.DataFrame:
     """The whole market each day (index: the day's end, when it is known): the share of contracts above their
     30-day mean, the cross-sectional spread of 7-day returns, the share with positive 3-day funding and the median

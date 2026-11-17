@@ -289,6 +289,7 @@ NOT_CHECKED = {
     "lab.candidates.sized_weight": NUMBER, "lab.candidates.fit_ridge": FIT, "lab.candidates.directional_labels": LABEL,
     "lab.pair.load_inputs": "reads the snapshot files and cuts them at `limit`", "lab.pair.labels": LABEL,
     "lab.feature_pool.load_inputs": "reads the snapshot files and cuts every source at `limit` by when it is known",
+    "lab.feature_pool.load_market": "reads a whole-market snapshot and cuts it at `limit`; market_breadth is checked",
     "lab.pair_study.fit_predict": FIT, "lab.pair_study.simulate_pair": SIMULATION, "lab.pair_study.yearly": REPORT,
     "lab.pair_study.describe": REPORT, "lab.pair_study.public": REPORT, "lab.pair_study.gate_checks": REPORT,
     "lab.pair_study.run_study": DRIVER, "lab.pair_study.main": DRIVER,
