@@ -4878,6 +4878,9 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
 - **本地**【实际运行结果】：
   - 资金费存储、亏损停止线、仓位基数、迁移、恢复的测试通过；
   - ruff 通过，`mypy trading/`（98 个文件）通过。
+- **CI 抓到的漏改**【实际运行结果】：`tests/unit/trading/test_lost_state_files.py::test_each_store_declares_exactly_the_tables_initialization_creates`
+  失败。它列出每个存储声明的表，要和初始化建的表一致；资金费存储是本 PR 新加的，没列进去。这是本 PR 一开始就有的漏改，本地没跑这个文件。
+  - 改动（跟着已批准的第 2 版状态库）：`declared` 列表加上 `*SqliteFundingStore.TABLES`；断言本身没改。
 
 ## 试运行前一键检查（2026-11-17，轻流程：只读工具）
 

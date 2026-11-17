@@ -26,6 +26,7 @@ from trading.infrastructure import state_dir as managed
 from tests.support.state_db import database_tables, state_db
 from trading.adapters.sqlite.drawdown_store import SqliteDrawdownGuard as _Guard
 from trading.adapters.sqlite.entry_pause import SqliteEntryPauses
+from trading.adapters.sqlite.funding_store import SqliteFundingStore
 from trading.adapters.sqlite.order_journal import SqliteOrderJournal
 from trading.adapters.sqlite.schema import STATE_DB, TABLES as SCHEMA_TABLES
 from trading.infrastructure.state_dir import STORES
@@ -54,7 +55,8 @@ def _init(path):
 def test_each_store_declares_exactly_the_tables_initialization_creates(tmp_path):
     _init(tmp_path / "state")
     created = {t for t in database_tables(tmp_path / "state" / STATE_DB) if not t.startswith("sqlite_")}
-    declared = [*SqliteOrderJournal.TABLES, *_Guard.TABLES, *SqliteLimitStore.TABLES, *SqliteEntryPauses.TABLES]
+    declared = [*SqliteOrderJournal.TABLES, *_Guard.TABLES, *SqliteLimitStore.TABLES, *SqliteEntryPauses.TABLES,
+                *SqliteFundingStore.TABLES]      # state database version 2 (tech lead 2026-11-17)
     assert len(declared) == len(set(declared)) and set(declared) == created == set(SCHEMA_TABLES)
 
 
