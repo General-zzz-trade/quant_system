@@ -1,0 +1,32 @@
+{
+ "X1_xs_momentum_ls": {
+  "total_return": 1.2464047255614483,
+  "sharpe": 0.7437888132973843,
+  "max_drawdown": 0.30222604134949094,
+  "days": 1648
+ },
+ "X2_xs_carry_ls": {
+  "total_return": 1.0454055733734653,
+  "sharpe": 0.7391177574715119,
+  "max_drawdown": 0.250497337722018,
+  "days": 1648
+ },
+ "X3_xs_lowvol_ls": {
+  "total_return": -0.22487866915882826,
+  "sharpe": -0.01709084359945654,
+  "max_drawdown": 0.6213828020517831,
+  "days": 1648
+ },
+ "X4_xs_regime_ls": {
+  "total_return": -0.5366316259582407,
+  "sharpe": -0.41218201991372383,
+  "max_drawdown": 0.8019321872268338,
+  "days": 1648
+ },
+ "B2_xs_reversal_ls": {
+  "total_return": -0.30129572026739493,
+  "sharpe": -0.12493733313226578,
+  "max_drawdown": 0.7157498689872857,
+  "days": 1648
+ }
+}

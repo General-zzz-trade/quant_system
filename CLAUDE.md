@@ -91,6 +91,13 @@
     volatility, correlation-aware portfolio cap, drawdown brake, all three) failed 2026-11-15. Only the brake cut
     the drawdown enough, and its Sharpe fell to 0.59 from 0.72 (`research/results/overlay_risk_2026-11-15/`).
     Not to be re-tuned on that window; the frozen overlay is unchanged.
+  - Cross-sectional long/short on the 10 most liquid crypto perps (`lab/xs_study.py`, owner 2026-11-17 "开广度和成本"):
+    momentum, carry, low volatility, reversal and a BTC trend/range switch, long 3 / short 3 daily at 1500 USDT
+    notional, 2x, the 8 % stop; failed 2026-11-17, every walk-forward lost 69-99 % (`research/lab/runs/2026-11-17e/`).
+    Gross of costs and stops momentum and carry made Sharpe 0.74 (a diagnostic written after the results): the
+    trading lost the money. Reversal was worse in ranges than in trends, so the switch did not help. Not to be
+    re-tuned on the development window. Maker entries were not better by their registered rule (2026-11-17d), so
+    the lab stays at market entries; the replay can take maker entries (`execution`, #161).
 - **Research discipline in code:**
   - `research/trials.jsonl` (`lab/trials.py`) records every configuration evaluated on real
     data; gates use the deflated Sharpe over the whole family. The directional family holds 83 trials.

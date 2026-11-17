@@ -75,7 +75,8 @@ class FunctionStrategy:
     """An idea written as a function of (hourly frame, context), behind the strategy interface so the judge replays it
     as it replays every strategy. Research only: the runtime runs only the strategies registered in
     trading/domain/strategy. ``ctx`` is what the first run's functions read: ``params``; ``btc``, BTCUSDT's frame;
-    ``symbol``; ``universe``, the symbols the strategy was given."""
+    ``symbol``; ``universe``, the symbols the strategy was given; and, as the registered ideas have it, ``frames``,
+    every symbol's frame (lab/xs_study.py, 2026-11-17)."""
     name = "function"
 
     def __init__(self, fn: Idea, params: dict, *, cross: bool = False, reads: tuple[str, ...] | None = None) -> None:
@@ -99,7 +100,8 @@ class FunctionStrategy:
         frames = {symbol: lab_frame(window) for symbol, window in windows.items()}
         out = {}
         for symbol, frame in frames.items():
-            ctx = {"params": self.params, "btc": frames.get("BTCUSDT"), "symbol": symbol, "universe": list(frames)}
+            ctx = {"params": self.params, "btc": frames.get("BTCUSDT"), "symbol": symbol, "universe": list(frames),
+                   "frames": frames}
             weight = self.fn(frame, ctx).reindex(frame.index).fillna(0.0)
             out[symbol] = pd.DataFrame({"available_at": frame.index.to_numpy(np.int64) + H,
                                         "target": weight.to_numpy(dtype=float), "ready": True})

@@ -1,0 +1,84 @@
+{
+ "code_commit": "40a70fb17b46151cb0f5f6d79394cd7c028c316d",
+ "regimes": {
+  "X1_xs_momentum_ls": {
+   "trend": {
+    "days": 398,
+    "return": -0.20236443001376936,
+    "sharpe": 0.01548924152343882
+   },
+   "range": {
+    "days": 1250,
+    "return": -0.7024422929841434,
+    "sharpe": -0.6362943600594638
+   }
+  },
+  "X2_xs_carry_ls": {
+   "trend": {
+    "days": 398,
+    "return": -0.3418839380007044,
+    "sharpe": -0.7267198701825336
+   },
+   "range": {
+    "days": 1250,
+    "return": -0.5253302641445265,
+    "sharpe": -0.415044385838949
+   }
+  },
+  "X3_xs_lowvol_ls": {
+   "trend": {
+    "days": 398,
+    "return": -0.06979805201197642,
+    "sharpe": 0.047893601806538906
+   },
+   "range": {
+    "days": 1250,
+    "return": -0.8199243592888741,
+    "sharpe": -1.1538555374571957
+   }
+  },
+  "X4_xs_regime_ls": {
+   "trend": {
+    "days": 398,
+    "return": -0.12806306893134578,
+    "sharpe": 0.15271225337686717
+   },
+   "range": {
+    "days": 1250,
+    "return": -0.8913661374101434,
+    "sharpe": -0.9413198774734658
+   }
+  },
+  "B2_xs_reversal_ls": {
+   "trend": {
+    "days": 398,
+    "return": -0.607984984703557,
+    "sharpe": -1.5288289129172283
+   },
+   "range": {
+    "days": 1250,
+    "return": -0.9713963611171115,
+    "sharpe": -2.3218554553415296
+   }
+  }
+ },
+ "regime_threshold": 0.3,
+ "capital_150": {
+  "idea": "X1_xs_momentum_ls",
+  "walk_forward": {
+   "days": 1648,
+   "total_return": -0.729911699043294,
+   "cagr": -0.2516761836535545,
+   "sharpe": -0.5328667619813195,
+   "max_drawdown": 0.7845377460090757,
+   "worst_month": -0.3516869204925326,
+   "worst_month_label": "2021-05",
+   "longest_losing_days": 13
+  },
+  "round_trips": 1268,
+  "entry_orders": {
+   "1500": 6050,
+   "150": 2053
+  }
+ }
+}
