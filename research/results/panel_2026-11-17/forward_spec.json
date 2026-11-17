@@ -1,0 +1,136 @@
+{
+ "code_commit": "494646000298b47299cf9607225080028407a60d",
+ "features": [
+  "ret_1_z",
+  "ret_3_z",
+  "ret_7_z",
+  "ret_14_z",
+  "ret_30_z",
+  "ret_60_z",
+  "ret_90_z",
+  "rv_7",
+  "rv_30",
+  "rv_ratio_7_30",
+  "rv_pct_365",
+  "range_ratio_14_90",
+  "er_14",
+  "er_30",
+  "dist_ma_20",
+  "dist_ma_50",
+  "dist_ma_200",
+  "skew_30",
+  "vov_60",
+  "hourly_rv_ratio",
+  "taker_1d",
+  "taker_7d",
+  "volume_z_30",
+  "rv_intraday_1d",
+  "har_rv_7",
+  "har_rv_30",
+  "parkinson_7",
+  "garman_klass_7",
+  "ewma_vol",
+  "jump_share_7",
+  "downside_share_7",
+  "vol_of_rv_30",
+  "funding_3d",
+  "funding_z_90",
+  "funding_chg_7d",
+  "ta_rsi_1d",
+  "ta_macd_hist_1d",
+  "ta_adx_1d",
+  "ta_di_diff_1d",
+  "ta_aroon_osc_1d",
+  "ta_ichimoku_dist_1d",
+  "ta_donchian_20_1d",
+  "ta_donchian_55_1d",
+  "ta_ma_stack_1d",
+  "ta_psar_dir_1d",
+  "ta_stoch_k_1d",
+  "ta_stoch_d_1d",
+  "ta_cci_1d",
+  "ta_bb_pctb_1d",
+  "ta_bb_width_1d",
+  "ta_atr_pct_1d",
+  "ta_squeeze_on_1d",
+  "ta_squeeze_bars_1d",
+  "ta_bb_kc_ratio_1d",
+  "ta_chop_1d",
+  "ta_obv_slope_1d",
+  "ta_mfi_1d",
+  "ta_vwap_dev_1d",
+  "ta_vol_rel_1d",
+  "ta_hurst_1d",
+  "rank_ret_7_z",
+  "rank_ret_30_z",
+  "rank_funding_3d",
+  "rank_rv_30",
+  "rank_volume_z_30",
+  "breadth_ma30",
+  "dispersion_7",
+  "funding_pos_share",
+  "alt_minus_btc_30",
+  "btc_ret_7_z",
+  "btc_ret_30_z",
+  "btc_rv_30",
+  "log_rv_30"
+ ],
+ "frozen_at": "2026-11-17",
+ "kind": "panel_forward",
+ "models": {
+  "fwd_vol_14 lgbm": {
+   "fwd_vol_14_lgbm.meta.json": "d950153552523dbd4deb03832dc88370dcb35c500297b96fb1c502511f193f00",
+   "fwd_vol_14_lgbm.model.txt": "b3372502e9626728546a02167f0d54820ef26bcb6ef63d9a346487daac9480e8"
+  },
+  "fwd_vol_14 naive": {
+   "fwd_vol_14_naive.json": "22eff5899402486cad2493f967aca37e820b8422695bc46384c6a82e43f1a21d"
+  },
+  "fwd_vol_14 ridge": {
+   "fwd_vol_14_ridge.json": "3ede199bcb8be495e73611ccd879fd2ceafeb2e10c0513a96a1571418fe68f36"
+  },
+  "fwd_vol_7 lgbm": {
+   "fwd_vol_7_lgbm.meta.json": "2aa513d95c6f375790689a0b19c6b7a5ea817a6e434d1184e372cb31e59007eb",
+   "fwd_vol_7_lgbm.model.txt": "1b4844fe8c1707a7149a0c8af3f551f3c6f0098d26d48ec9ef899d71a20e334f"
+  },
+  "fwd_vol_7 naive": {
+   "fwd_vol_7_naive.json": "239b030ab5a7cf30c8650eafb04abb77bb7fe3fef976e4cd7f6da661f7623129"
+  },
+  "fwd_vol_7 ridge": {
+   "fwd_vol_7_ridge.json": "e1b9b28b029e01bc3565bf857fdd847c51c4419a6092802e54ee3d8cc89a6929"
+  },
+  "ret_14_scaled lgbm": {
+   "ret_14_scaled_lgbm.meta.json": "d4358612bc0a3bd0d16a5e7beeaba60ab41eeac263b72ae5889a54d9eb8377b9",
+   "ret_14_scaled_lgbm.model.txt": "3f65e896de41e27ed0f71415de5aa6e3eae140d2984f43f07d6ee6caf0fd478e"
+  },
+  "ret_14_scaled ridge": {
+   "ret_14_scaled_ridge.json": "4c63d40d893591d2bdbc160363e08a882e8190fd2e80caa6e85d418d85aa03ee"
+  },
+  "trend_14 lgbm": {
+   "trend_14_lgbm.meta.json": "0b5fec2b97c3674d44cc07201d33e4b5a2eec348a18efef7415b20f2eb87831c",
+   "trend_14_lgbm.model.txt": "3699a819cf16f6454bd2e88ba03f56b3d9366eee6ed81377ab94bb1d09aabf17"
+  },
+  "trend_14 logistic": {
+   "trend_14_logistic.json": "b5031ad706d1abcd71b6b79842acff5b9cc275d62101a2e326c664b8e37f9588"
+  }
+ },
+ "panel": {
+  "contracts_ever_in_universe": 543,
+  "contracts_seen": 687,
+  "mean_names_per_day": 98.95874355368026,
+  "rows": 211079
+ },
+ "passed": false,
+ "protocol": "research/protocols/2026-11-17-panel-forward.md",
+ "registered": true,
+ "rows_known_before": "2026-11-13T00:00:00Z",
+ "snapshot": "binance_usdt_perps_2020_2026-11-12",
+ "study": "panel_2026-11-17:frozen",
+ "targets": {
+  "fwd_vol_14": "regression",
+  "fwd_vol_7": "regression",
+  "ret_14_scaled": "regression",
+  "trend_14": "binary"
+ },
+ "tradfi_sha256": "64e6bc8e38cc6cfd830eedf8e7bccef7c5529f6d67e317c81a6c7eb8def87d44",
+ "universe": "top 100 crypto USDT perpetuals per day by the 30-day median quote volume; BTC and ETH always; tradfi (runs/2026-11-17b/tradfi_contracts.json) and stablecoin contracts left out"
+}

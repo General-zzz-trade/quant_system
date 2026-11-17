@@ -117,3 +117,16 @@ def test_a_day_s_rows_weigh_one_in_all():
     t = np.array([1, 1, 1, 2, 2, 3], dtype=np.int64)
     w = ps._weights(t)
     assert w.tolist() == pytest.approx([1 / 3] * 3 + [0.5] * 2 + [1.0])
+
+
+def test_a_frozen_model_predicts_after_export_exactly_as_before(tmp_path):
+    x, y, t, _ = _panel(0.5, days=200, names=10)
+    x.loc[x.index[:50], "noise"] = np.nan                                         # filled from the training medians
+    binary = (y > 0).astype(float)
+    for kind, model, target in (("binary", "logistic", binary), ("regression", "ridge", y),
+                                ("binary", "lgbm", binary), ("regression", "lgbm", y)):
+        frozen = ps.fit_final(x, target, t, kind=kind, model=model)
+        path = ps.save_frozen(frozen, tmp_path / f"{kind}_{model}")
+        again = ps.load_frozen(path)
+        assert np.allclose(ps.predict_frozen(again, x), ps.predict_frozen(frozen, x), rtol=0, atol=1e-6)
+        assert path.suffix in (".json", ".txt")                                    # never a pickle
