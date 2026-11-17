@@ -4746,3 +4746,25 @@ python -m lab.paper_compare --paper-dir data/runtime/paper --data-dir data_files
 - **本地**【实际运行结果】：新测试、`test_binance_um_all.py`、`test_research_infra.py`、`test_lookahead.py` 的模块清单测试、
   `tests/architecture` 通过；ruff、`lint-imports` 通过。
 - **第一次用**：2026-11-26 起，先 `download` 再 `look`（命令在模块说明里），结果放 `research/lab/forward/e3/2026-11-25/`。
+
+## 试运行前一键检查（2026-11-17，轻流程：只读工具）
+
+- **决定**：技术负责人 2026-11-17 选了"试运行前一键检查"。
+- **改了什么**：
+  - `python3 -m scripts.account_check --pilot --spec <签名规格> [--state-dir /var/lib/quant/state/mainnet]`，逻辑在新模块 `scripts/pilot_check.py`。
+    它在唯一被允许读凭证文件的工具里运行，只发白名单上的 GET 请求，不显示任何密钥。
+  - 逐项打 ✓ 或 ✗，最后写"可以启动"或"还缺 N 项"。检查的内容：
+    - 设置：启动时的配置检查、主网、日亏限额 3%（代码默认是 5%）、签名密钥、告警文件夹能写、策略资金。
+    - 规格：签名对得上（用和 `infra.model_signing` 相同的 HMAC-SHA256，密钥只在内存里）、`passed` 为 true、运行时的解析器能读。
+    - 状态目录：运行时的启动检查，包括数据库版本。
+    - 账户：没有任何仓位；没有挂单和条件单；单向持仓模式；规格里每个品种的杠杆和保证金模式和设置一致；USDT 余额不少于策略资金。
+- **已有测试的改动**：没有。
+- **新增测试**：`tests/unit/tooling/test_pilot_check.py` 9 个函数（一个参数化 5 例），共 13 例：
+  - 全部就绪时通过，输出里没有密钥，只用白名单路径；
+  - 缺少的设置会被点名；
+  - 任何仓位或挂单都会被点名；
+  - 品种的杠杆或保证金模式不对；
+  - 规格没签名、没标记通过或被改过；
+  - 状态目录没通过检查；告警文件夹不能写；余额不够；对冲持仓模式。
+- **本地**【实际运行结果】：`tests/unit/tooling`、`tests/architecture` 通过；ruff、`lint-imports` 通过。
+- **用法**：资金费存储合并之后（状态库第 2 版），先在主机上迁移状态目录，再跑这个检查；全部 ✓ 之后，启动仍由技术负责人决定。
