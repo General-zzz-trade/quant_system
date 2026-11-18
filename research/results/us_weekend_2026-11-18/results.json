@@ -1,5 +1,5 @@
 {
- "code_commit": "33803f9f6bb4536bb2cfec29b00ab1d489b83c9c",
+ "code_commit": "4ef893e97451315351e48ca346a292d8f1304fe5",
  "screen": {
   "events_selection": 587,
   "weekends_selection": 28,
@@ -7,144 +7,144 @@
   "configs": {
    "fade1_open+1h": {
     "base": {
-     "events": 422,
+     "events": 408,
      "weekends_traded": 27,
-     "mean_net": 0.010019986936285231,
-     "median_net": 0.002907585605006581,
-     "hit_rate": 0.5450236966824644,
-     "t_weekend": 1.1571504288557388,
-     "weekly_sharpe": 1.5765637013324123,
-     "mean_weekend": 0.005425454315962637
+     "mean_net": 0.009032591039466761,
+     "median_net": 0.00314786713376215,
+     "hit_rate": 0.5490196078431373,
+     "t_weekend": 1.1697189822041223,
+     "weekly_sharpe": 1.593655820105037,
+     "mean_weekend": 0.004715151409169453
     },
     "stress": {
-     "events": 422,
+     "events": 407,
      "weekends_traded": 27,
-     "mean_net": 0.00841998693628523,
-     "median_net": 0.0013075856050065809,
-     "hit_rate": 0.518957345971564,
-     "t_weekend": 0.8158996177076439,
-     "weekly_sharpe": 1.1121387906180824,
-     "mean_weekend": 0.0038254543159626365
+     "mean_net": 0.007644876054803083,
+     "median_net": 0.0015896002998595348,
+     "hit_rate": 0.5233415233415234,
+     "t_weekend": 0.7982356506591873,
+     "weekly_sharpe": 1.088082627814445,
+     "mean_weekend": 0.003215372953634036
     }
    },
    "fade1_close": {
     "base": {
-     "events": 422,
+     "events": 408,
      "weekends_traded": 27,
-     "mean_net": 0.007577693289440213,
-     "median_net": 0.0028502865598018026,
-     "hit_rate": 0.5402843601895735,
-     "t_weekend": 1.3964758191970397,
-     "weekly_sharpe": 1.901836774698379,
-     "mean_weekend": 0.007995187018020487
+     "mean_net": 0.006545463162616958,
+     "median_net": 0.0028057835345653226,
+     "hit_rate": 0.5392156862745098,
+     "t_weekend": 1.4750141052800838,
+     "weekly_sharpe": 2.0084864945798784,
+     "mean_weekend": 0.0073905403277450205
     },
     "stress": {
-     "events": 422,
+     "events": 407,
      "weekends_traded": 27,
-     "mean_net": 0.006018771867639265,
-     "median_net": 0.0013516677106540026,
-     "hit_rate": 0.514218009478673,
-     "t_weekend": 1.1242055222984881,
-     "weekly_sharpe": 1.5317567231840625,
-     "mean_weekend": 0.006427993618488754
+     "mean_net": 0.005410300969763151,
+     "median_net": 0.0013485648381472374,
+     "hit_rate": 0.5135135135135135,
+     "t_weekend": 1.2118270124384947,
+     "weekly_sharpe": 1.6509114153266264,
+     "mean_weekend": 0.006011924716005502
     }
    },
    "fade2_open+1h": {
     "base": {
-     "events": 277,
+     "events": 264,
      "weekends_traded": 26,
-     "mean_net": 0.013788999401882478,
-     "median_net": 0.004776195536663132,
-     "hit_rate": 0.5812274368231047,
-     "t_weekend": 1.2229984347850738,
-     "weekly_sharpe": 1.6654902392350441,
-     "mean_weekend": 0.006867495524365826
+     "mean_net": 0.012391067115296407,
+     "median_net": 0.005038823860558126,
+     "hit_rate": 0.5871212121212122,
+     "t_weekend": 1.2264088884085926,
+     "weekly_sharpe": 1.6701147798527405,
+     "mean_weekend": 0.00591907870289811
     },
     "stress": {
-     "events": 277,
+     "events": 264,
      "weekends_traded": 26,
-     "mean_net": 0.012188999401882474,
-     "median_net": 0.0031761955366631316,
-     "hit_rate": 0.5451263537906137,
-     "t_weekend": 0.9380623196156624,
-     "weekly_sharpe": 1.2785821081454758,
-     "mean_weekend": 0.0052674955243658264
+     "mean_net": 0.010790489057756023,
+     "median_net": 0.003444687614862667,
+     "hit_rate": 0.5492424242424242,
+     "t_weekend": 0.8924472112491342,
+     "weekly_sharpe": 1.2165533216501234,
+     "mean_weekend": 0.004307624630964576
     }
    },
    "fade2_close": {
     "base": {
-     "events": 277,
+     "events": 264,
      "weekends_traded": 26,
-     "mean_net": 0.011439314665364105,
-     "median_net": 0.004519434479848085,
-     "hit_rate": 0.5595667870036101,
-     "t_weekend": 1.090212039162711,
-     "weekly_sharpe": 1.485309662928064,
-     "mean_weekend": 0.008063640978275083
+     "mean_net": 0.010021135952078434,
+     "median_net": 0.004318993096593373,
+     "hit_rate": 0.5606060606060606,
+     "t_weekend": 1.1258244531911394,
+     "weekly_sharpe": 1.5336558615692475,
+     "mean_weekend": 0.007425595115843399
     },
     "stress": {
-     "events": 277,
+     "events": 264,
      "weekends_traded": 26,
-     "mean_net": 0.009884969611212479,
-     "median_net": 0.0029194344798480847,
-     "hit_rate": 0.5379061371841155,
-     "t_weekend": 0.8822439750527457,
-     "weekly_sharpe": 1.2026756618156202,
-     "mean_weekend": 0.006515475620789524
+     "mean_net": 0.008465862481253417,
+     "median_net": 0.002719221343120186,
+     "hit_rate": 0.5378787878787878,
+     "t_weekend": 0.8907674551476736,
+     "weekly_sharpe": 1.2142687201311375,
+     "mean_weekend": 0.00586747349654979
     }
    },
    "fade3_open+1h": {
     "base": {
-     "events": 187,
+     "events": 177,
      "weekends_traded": 22,
-     "mean_net": 0.013634793133506585,
-     "median_net": 0.0006346368715084885,
-     "hit_rate": 0.5187165775401069,
-     "t_weekend": 0.9939158291144152,
-     "weekly_sharpe": 1.3545619560577071,
-     "mean_weekend": 0.00830514045424066
+     "mean_net": 0.012244173906571091,
+     "median_net": 0.0007123283368249918,
+     "hit_rate": 0.5254237288135594,
+     "t_weekend": 1.1056578571713598,
+     "weekly_sharpe": 1.505067481993968,
+     "mean_weekend": 0.007839512855289934
     },
     "stress": {
-     "events": 187,
+     "events": 177,
      "weekends_traded": 22,
-     "mean_net": 0.012034793133506581,
-     "median_net": -0.0009653631284915116,
-     "hit_rate": 0.48663101604278075,
-     "t_weekend": 0.8024361864346742,
-     "weekly_sharpe": 1.0955082012637456,
-     "mean_weekend": 0.006705140454240661
+     "mean_net": 0.010643130717086556,
+     "median_net": -0.0008865680500233558,
+     "hit_rate": 0.4915254237288136,
+     "t_weekend": 0.8789353155767394,
+     "weekly_sharpe": 1.1991653888347105,
+     "mean_weekend": 0.006234537966262233
     }
    },
    "fade3_close": {
     "base": {
-     "events": 187,
+     "events": 177,
      "weekends_traded": 22,
-     "mean_net": 0.01129734161755789,
-     "median_net": 0.0016954358213872491,
-     "hit_rate": 0.5240641711229946,
-     "t_weekend": 0.9630136424368289,
-     "weekly_sharpe": 1.3128478757764823,
-     "mean_weekend": 0.009243377200137286
+     "mean_net": 0.009789712652052165,
+     "median_net": 0.0016922922793617858,
+     "hit_rate": 0.5254237288135594,
+     "t_weekend": 1.2574814463143742,
+     "weekly_sharpe": 1.7086496883942142,
+     "mean_weekend": 0.009736499053787685
     },
     "stress": {
-     "events": 187,
+     "events": 177,
      "weekends_traded": 22,
-     "mean_net": 0.009742917125579276,
-     "median_net": 9.543582138724907e-05,
-     "hit_rate": 0.5026737967914439,
-     "t_weekend": 0.8046210380147413,
-     "weekly_sharpe": 1.0984714718084447,
-     "mean_weekend": 0.007720502511919969
+     "mean_net": 0.008237029202103428,
+     "median_net": 9.011103471384769e-05,
+     "hit_rate": 0.5028248587570622,
+     "t_weekend": 1.0581267903634486,
+     "weekly_sharpe": 1.441113287680493,
+     "mean_weekend": 0.00820229334435439
     }
    }
   },
   "chosen": "fade1_close",
-  "permutation_p": 0.0877912208779122,
+  "permutation_p": 0.07649235076492351,
   "top_ticker": "LITE",
-  "mean_without_top_ticker": 0.006667020169558404,
+  "mean_without_top_ticker": 0.005579605686858263,
   "halves_mean_net": [
-   0.013119089023056271,
-   0.006531852404504226
+   0.012441101468559137,
+   0.005428213920966107
   ],
   "report_only": {
    "corr_weekend_move_vs_stock_gap": 0.9501656115241746,
@@ -165,5 +165,5 @@
   "opened_holdout": false,
   "reason": "no configuration passed the line"
  },
- "final_commit": "33803f9f6bb4536bb2cfec29b00ab1d489b83c9c"
+ "final_commit": "4ef893e97451315351e48ca346a292d8f1304fe5"
 }
