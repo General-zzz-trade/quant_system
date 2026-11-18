@@ -68,6 +68,9 @@ def test_the_family_deflated_sharpe_counts_the_family_and_needs_0_9():
     assert few["threshold"] == 0.9 and few["passes"] == (few["probability"] >= 0.9)
     weak = gates.family_deflated(pd.Series(rng.normal(0.0001, 0.01, 1500), index=_days(1500)), [0.1, 0.3, -0.2, 0.5])
     assert not weak["passes"]
+    two = gates.family_deflated(daily, [0.0, 0.5, 0.0, 0.5])               # the same spread, more trials: lower
+    hundred = gates.family_deflated(daily, [0.0, 0.5] * 50)
+    assert hundred["probability"] < two["probability"]
 
 
 def test_power_and_the_sample_a_design_needs():
