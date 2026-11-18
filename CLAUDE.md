@@ -216,7 +216,7 @@ python -m lab.paper_compare --paper-dir <paper dir> --data-dir <snapshot dir>   
 python3 -m scripts.account_check --pilot --spec <signed spec>   # the pilot's start check: what is still missing
 python3 -m scripts.live_fills --state-db <state.sqlite> --history <dir>   # pilot fills vs the backtest's assumptions
 python3 -m scripts.live_fills --state-db <db> --history <dir> --events <events.jsonl> --json-out <f> --markdown-out <f>   # daily report
-python -m lab.um_monthly plan|screen|final --snapshot <dir> --run research/lab/runs/<date>   # monthly re-selection
+python -m lab.um_monthly plan|screen|line|final --snapshot <dir> --run research/lab/runs/<date>   # monthly re-selection
 python -m lab.um_forward download|look --frozen <file> --study <name> --end <date> ...   # a champion's weekly look
 python3 -m scripts.draft_strategy_spec --run <run dir> --snapshot <dir>   # a champion's spec draft (passed false)
 python -m data.downloads.perps_feed update --feed /root/lab_cache/prediction_feed/feed   # public data, no key

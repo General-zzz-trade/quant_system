@@ -17,6 +17,7 @@ import pytest
 from lab import um_judge as judge
 from lab import um_lab as lab
 from lab import um_monthly as monthly
+from tests.unit.lab.test_um_judge_runs import make, market  # noqa: F401  (a fixture)
 
 
 def d(text):
@@ -101,3 +102,31 @@ def test_the_screen_refuses_another_snapshot_than_the_plan_s(tmp_path):
     (other / "manifest.json").write_text(json.dumps({"window": ["2020-01-01", "2026-12-01"]}))
     with pytest.raises(SystemExit, match="snapshot"):
         monthly.registered(other, run)
+
+
+# -- the 2026-11-18 standards (owner, after the retrospective) ----------------------------------------------------
+def test_the_line_applies_the_new_gates_after_the_screen(market, tmp_path):  # noqa: F811
+    j = make(market, tmp_path)
+    variants = (judge.LIVE_STOP,)
+    screened = j.screen(variants=variants, processes=1)
+    out = monthly.line(j, screened, variants=variants)
+    assert set(out["benchmarks"]) == {"btc_hold", "btc_vol_target"}
+    for name, row in out["ideas"].items():
+        assert set(row["checks"]) == {"screen", "family_deflated_at_least_0.9", "regression_alpha", "portfolio_gain"}
+        assert row["family_deflated"]["n_trials"] == len(screened["ideas"][name]["selection_sharpe"])
+        assert row["survives"] == all(row["checks"].values())
+        assert row["checks"]["screen"] == screened["ideas"][name]["survives"]
+        assert 0.0 <= row["power"]["at_sharpe_0.5"] <= 1.0
+
+
+def test_only_the_line_s_survivors_reach_the_final_check():
+    screened = {"ideas": {"a": {"survives": True}, "b": {"survives": True}, "c": {"survives": False}}}
+    line = {"ideas": {"a": {"survives": False}, "b": {"survives": True}, "c": {"survives": False}}}
+    assert {n for n, r in monthly.with_line(screened, line)["ideas"].items() if r["survives"]} == {"b"}
+
+
+def test_an_idea_survives_only_when_every_gate_passes():
+    assert monthly.survives({"screen": True, "family_deflated_at_least_0.9": True, "regression_alpha": True,
+                             "portfolio_gain": True})
+    assert not monthly.survives({"screen": True, "family_deflated_at_least_0.9": False, "regression_alpha": True,
+                                 "portfolio_gain": True})

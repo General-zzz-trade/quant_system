@@ -4,6 +4,7 @@
         --out data_files/binance_usdt_perps_2020_<the last day it holds>
     python -m lab.um_monthly plan   --snapshot <dir> --run research/lab/runs/<date>   # windows.md; commit it
     python -m lab.um_monthly screen --snapshot <dir> --run research/lab/runs/<date>   # selection and walk-forward
+    python -m lab.um_monthly line   --snapshot <dir> --run research/lab/runs/<date>   # the 2026-11-18 gates
     python -m lab.um_monthly final  --snapshot <dir> --run research/lab/runs/<date>   # survivors: the holdout
 
 - Periods (``monthly_periods``): the holdout is the 6 months before the snapshot's end. Before it, whole yearly folds,
@@ -28,8 +29,12 @@ import subprocess
 from datetime import date, timedelta
 from pathlib import Path
 
+import pandas as pd
+
+from lab import gates
 from lab import um_judge as judge
 from lab import um_lab as lab
+from lab import um_portfolio as portfolio
 from lab.causality import violations
 from trading.domain.strategy.base import Window
 
@@ -71,8 +76,50 @@ def snapshot_end(snapshot: Path) -> date:
     return date.fromisoformat(end)
 
 
+VARIANTS = judge.STOP_VARIANTS       # the 2026-11-17 run's 12 stop variants (unchanged)
+
+
 def _configs() -> int:
-    return sum(len(grid) for _, grid in lab.lab_ideas().values()) * len(judge.STOP_VARIANTS)
+    return sum(len(grid) for _, grid in lab.lab_ideas().values()) * len(VARIANTS)
+
+
+def line(j: judge.Judge, screened: dict, *, variants=VARIANTS) -> dict:
+    """The 2026-11-18 gates after the screen: an idea's walk-forward must also pass the deflated Sharpe over its own
+    family (its configurations' selection Sharpes) at 0.9, a regression on holding BTC and holding BTC with position
+    control (annualized alpha > 0, Newey-West t >= 2), and raise holding BTC's Sharpe at risk parity. The power to
+    see a true Sharpe of 0.5 over the walk-forward is reported (below 80 %, a survivor is a candidate for forward
+    tracking, not a decision)."""
+    folds = list(j.folds)
+    hold = {k: lab.buy_and_hold(judge.BTC, a, b, j.snapshot) for k, (a, b) in enumerate(j.periods[:-1])}
+    vol = portfolio.vol_target_hold(j.snapshot, j.periods[:-1], capital=j.terms.capital)
+    bench = pd.DataFrame({"btc_hold": judge.joined({k: {"daily": hold[k]} for k in folds}, folds),
+                          "btc_vol_target": judge.joined({k: {"daily": vol[k]} for k in folds}, folds)}).fillna(0.0)
+    ideas = {}
+    for name, row in screened["ideas"].items():
+        runs = [(config, j.load(config)) for config in j.candidates(name, variants)]
+        daily = judge.walk_forward(runs, folds)["daily"]
+        deflated = gates.family_deflated(daily, list(row["selection_sharpe"].values()))
+        alpha = gates.regression_alpha(daily, bench)
+        gain = gates.portfolio_gain(daily, bench["btc_hold"])
+        sd, n = float(daily.std(ddof=1)), len(daily)
+        power = {"at_measured": gates.power(float(daily.mean()), sd, n) if sd > 0 else 0.0,
+                 "at_sharpe_0.5": gates.power(0.5 / 365 ** 0.5 * sd, sd, n) if sd > 0 else 0.0}
+        checks = {"screen": bool(row["survives"]), "family_deflated_at_least_0.9": deflated["passes"],
+                  "regression_alpha": alpha["passes"], "portfolio_gain": gain["passes"]}
+        ideas[name] = {"family_deflated": deflated, "regression_alpha": alpha, "portfolio_gain": gain,
+                       "power": power, "checks": checks, "survives": survives(checks)}
+    return {"benchmarks": {k: lab.summary(v) for k, v in bench.items()}, "ideas": ideas}
+
+
+def survives(checks: dict) -> bool:
+    """Every gate, not any one of them."""
+    return all(checks.values())
+
+
+def with_line(screened: dict, verdict: dict) -> dict:
+    """The screen with each idea's survival replaced by the line's: only those reach the final check."""
+    ideas = {name: {**row, "survives": verdict["ideas"][name]["survives"]} for name, row in screened["ideas"].items()}
+    return {**screened, "ideas": ideas}
 
 
 def plan(snapshot: Path, run: Path) -> Path:
@@ -106,10 +153,16 @@ def plan(snapshot: Path, run: Path) -> Path:
 ## 配置
 
 - 想法：`trading/domain/strategy/ideas.py` 登记的 {len(lab.lab_ideas())} 个；止损方案：`lab/um_judge.STOP_VARIANTS` 的
-  {len(judge.STOP_VARIANTS)} 种；共 {_configs()} 个配置。
+  {len(VARIANTS)} 种；共 {_configs()} 个配置。
 - 其他照 `runs/2026-11-17/windows.md`：资金 300 USDT、10 份、每段开始时换清单、VIP0 手续费、实际资金费、
   市价 3 个基点和止损 10 个基点滑点、含已下架合约、只在策略窗口满了之后持仓；
-  淘汰线和最终检查照 `runs/2026-11-16/ideas.md`。
+  筛选照 `runs/2026-11-16/ideas.md`。
+- 2026-11-18 起的新标准（`line` 一步，在打开验证段之前）：
+  - 按这个想法自己的配置族算紧缩夏普，≥ 0.9；
+  - 对"持有 BTC"和"持有 BTC 加仓位控制"回归，年化 alpha > 0，Newey–West t ≥ 2；
+  - 按风险平价加进"持有 BTC"，组合夏普要提高；
+  - 报告滚动前推上看到真实夏普 0.5 的统计力。不到 80% 时，过线的只算前向跟踪的候选，不算判定。
+- 只对过了这一步的想法做最终检查（验证段）。
 - 每个回放过的配置和时段都登记在 `research/lab/trials.jsonl`。
 """)
     return path
@@ -182,7 +235,7 @@ def _commit() -> str:
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("step", choices=("plan", "screen", "final"))
+    parser.add_argument("step", choices=("plan", "screen", "line", "final"))
     parser.add_argument("--snapshot", type=Path, required=True)
     parser.add_argument("--run", type=Path, required=True)
     parser.add_argument("--processes", type=int, default=2)
@@ -193,11 +246,16 @@ def main(argv: list[str] | None = None) -> None:
     registered(args.snapshot, args.run)
     j = MonthlyRun(args.snapshot, args.run).judge()
     if args.step == "screen":
-        screened = j.screen(variants=judge.STOP_VARIANTS, processes=args.processes)
+        screened = j.screen(variants=VARIANTS, processes=args.processes)
         (args.run / "screen.json").write_text(json.dumps({"code_commit": _commit(), **screened}, indent=1,
                                                          default=str))
-    else:
+    elif args.step == "line":
         screened = json.loads((args.run / "screen.json").read_text())
+        (args.run / "line.json").write_text(json.dumps({"code_commit": _commit(), **line(j, screened)}, indent=1,
+                                                       default=str))
+    else:
+        screened = with_line(json.loads((args.run / "screen.json").read_text()),
+                             json.loads((args.run / "line.json").read_text()))
         checked = j.final(screened, processes=args.processes)
         (args.run / "results.json").write_text(json.dumps({"code_commit": _commit(), "screen": screened,
                                                            "final": checked}, indent=1, default=str))
@@ -207,4 +265,5 @@ if __name__ == "__main__":
     main()
 
 
-__all__ = ["MonthlyRun", "monthly_periods", "plan", "registered", "snapshot_end"]
+__all__ = ["MonthlyRun", "VARIANTS", "line", "monthly_periods", "plan", "registered", "snapshot_end", "survives",
+           "with_line"]
