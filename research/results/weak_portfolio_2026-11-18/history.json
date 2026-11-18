@@ -1,0 +1,105 @@
+{
+ "code_commit": "1c91cb99cb21729840f07785d44818daf8e4b4f4",
+ "members_by_fold": [
+  [
+   "A8_xs_momentum_top3",
+   "overlay",
+   "E4_high_vol_off",
+   "C5_trend_not_crowded",
+   "E3_vol_target_trend"
+  ],
+  [
+   "F1_btc_trend_beta",
+   "A8_xs_momentum_top3",
+   "overlay",
+   "A3_ma_cross_long",
+   "C5_trend_not_crowded"
+  ],
+  [
+   "F1_btc_trend_beta",
+   "D2_taker_imbalance",
+   "A8_xs_momentum_top3",
+   "E3_vol_target_trend",
+   "overlay"
+  ],
+  [
+   "F1_btc_trend_beta",
+   "D2_taker_imbalance",
+   "A8_xs_momentum_top3",
+   "E3_vol_target_trend",
+   "C5_trend_not_crowded"
+  ],
+  [
+   "F1_btc_trend_beta",
+   "E3_vol_target_trend",
+   "A8_xs_momentum_top3",
+   "overlay",
+   "C5_trend_not_crowded"
+  ]
+ ],
+ "walk_forward": {
+  "days": 1826,
+  "total_return": 0.6673668819784997,
+  "cagr": 0.10759736877831627,
+  "sharpe": 0.45277080804647946,
+  "max_drawdown": 0.594671228368137,
+  "worst_month": -0.2326573289971815,
+  "worst_month_label": "2021-05",
+  "longest_losing_days": 10
+ },
+ "regression_alpha": {
+  "alpha_annual": 0.05352535069364636,
+  "t_newey_west": 0.3580654181516248,
+  "lags": 7,
+  "days": 1826,
+  "betas": {
+   "btc_hold": 0.18153499327729855,
+   "btc_vol_target": 0.6798228159487469
+  },
+  "passes": false
+ },
+ "portfolio_gain": {
+  "weights": {
+   "strategy": 0.5415546016849612,
+   "benchmark": 0.4584453983150389
+  },
+  "sharpe_with": 0.5014025530574157,
+  "sharpe_benchmark": 0.45191109516028277,
+  "passes": true
+ },
+ "benchmarks": {
+  "btc_hold": {
+   "days": 1826,
+   "total_return": 0.6223362642290444,
+   "cagr": 0.10155239407871797,
+   "sharpe": 0.45191109516028277,
+   "max_drawdown": 0.7666956183209539,
+   "worst_month": -0.3734314952606783,
+   "worst_month_label": "2022-06",
+   "longest_losing_days": 8
+  },
+  "btc_vol_target": {
+   "days": 1826,
+   "total_return": 0.8117792643759822,
+   "cagr": 0.1261410430801797,
+   "sharpe": 0.5383205920489937,
+   "max_drawdown": 0.46570086058257554,
+   "worst_month": -0.1627797305738613,
+   "worst_month_label": "2022-11",
+   "longest_losing_days": 8
+  }
+ },
+ "mean_member_correlation": {
+  "1": 0.6357965754211656,
+  "2": 0.5583561965968141,
+  "3": 0.6870605939768079,
+  "4": 0.5481718995837641,
+  "5": 0.8187440649130486
+ },
+ "daily_sd": 0.024532700619945346,
+ "days": 1826,
+ "power": {
+  "at_sharpe_1.0": 0.6090146559851406,
+  "at_sharpe_1.5": 0.9185006955428978
+ }
+}

@@ -1,0 +1,86 @@
+{
+ "forward_start": "2026-11-13",
+ "members": [
+  {
+   "idea": "F1_btc_trend_beta",
+   "params": {
+    "n": 40
+   },
+   "prior_sharpe": 1.3067162671462529,
+   "stop": {
+    "pause_hours": 4,
+    "reenter": "pause_then_reset",
+    "stop_pct": "0.08"
+   }
+  },
+  {
+   "idea": "E3_vol_target_trend",
+   "params": {
+    "target": 0.02
+   },
+   "prior_sharpe": 1.28050507448634,
+   "stop": {
+    "pause_hours": 4,
+    "reenter": "pause_then_reset",
+    "stop_pct": "0.08"
+   }
+  },
+  {
+   "idea": "A1_tsmom_long",
+   "params": {
+    "n": 40
+   },
+   "prior_sharpe": 1.247323861667708,
+   "stop": {
+    "pause_hours": 4,
+    "reenter": "pause_then_reset",
+    "stop_pct": "0.08"
+   }
+  },
+  {
+   "idea": "C5_trend_not_crowded",
+   "params": {
+    "thr": 0.006
+   },
+   "prior_sharpe": 1.2447315332641393,
+   "stop": {
+    "pause_hours": 4,
+    "reenter": "pause_then_reset",
+    "stop_pct": "0.08"
+   }
+  },
+  {
+   "idea": "A8_xs_momentum_top3",
+   "params": {
+    "n": 30
+   },
+   "prior_sharpe": 1.2439261359967313,
+   "stop": {
+    "pause_hours": 4,
+    "reenter": "pause_then_reset",
+    "stop_pct": "0.08"
+   }
+  }
+ ],
+ "passed": false,
+ "protocol": "research/protocols/2026-11-18-weak-signal-portfolio.md",
+ "registered": "2026-11-18",
+ "sequential": {
+  "alpha": 0.05,
+  "beta": 0.2,
+  "daily_sd": 0.024532700619945346,
+  "effect_sharpe": 1.5,
+  "max_looks": 24
+ },
+ "source_run": "research/lab/runs/2026-11-17c",
+ "study": "weak_portfolio_2026-11-18:frozen",
+ "terms": {
+  "capital": "150",
+  "leverage": "2",
+  "symbols": [
+   "BTCUSDT",
+   "ETHUSDT"
+  ]
+ },
+ "weights": "equal capital at the forward start, not rebalanced"
+}

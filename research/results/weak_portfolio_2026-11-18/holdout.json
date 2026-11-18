@@ -1,0 +1,124 @@
+{
+ "code_commit": "1c91cb99cb21729840f07785d44818daf8e4b4f4",
+ "opened_holdout": true,
+ "members": [
+  {
+   "idea": "F1_btc_trend_beta",
+   "params": {
+    "n": 40
+   },
+   "stop": {
+    "stop_pct": "0.08",
+    "pause_hours": 4,
+    "reenter": "pause_then_reset"
+   },
+   "prior_sharpe": 1.3067162671462529
+  },
+  {
+   "idea": "E3_vol_target_trend",
+   "params": {
+    "target": 0.02
+   },
+   "stop": {
+    "stop_pct": "0.08",
+    "pause_hours": 4,
+    "reenter": "pause_then_reset"
+   },
+   "prior_sharpe": 1.28050507448634
+  },
+  {
+   "idea": "A1_tsmom_long",
+   "params": {
+    "n": 40
+   },
+   "stop": {
+    "stop_pct": "0.08",
+    "pause_hours": 4,
+    "reenter": "pause_then_reset"
+   },
+   "prior_sharpe": 1.247323861667708
+  },
+  {
+   "idea": "C5_trend_not_crowded",
+   "params": {
+    "thr": 0.006
+   },
+   "stop": {
+    "stop_pct": "0.08",
+    "pause_hours": 4,
+    "reenter": "pause_then_reset"
+   },
+   "prior_sharpe": 1.2447315332641393
+  },
+  {
+   "idea": "A8_xs_momentum_top3",
+   "params": {
+    "n": 30
+   },
+   "stop": {
+    "stop_pct": "0.08",
+    "pause_hours": 4,
+    "reenter": "pause_then_reset"
+   },
+   "prior_sharpe": 1.2439261359967313
+  }
+ ],
+ "holdout": {
+  "days": 184,
+  "total_return": 0.14929835739911046,
+  "cagr": 0.31789331439825275,
+  "sharpe": 0.804417816410155,
+  "max_drawdown": 0.1781722734484693,
+  "worst_month": -0.13355041460075168,
+  "worst_month_label": "2026-10",
+  "longest_losing_days": 5
+ },
+ "holdout_btc_hold": {
+  "days": 184,
+  "total_return": -0.1123239830476872,
+  "cagr": -0.21049906337023128,
+  "sharpe": -0.4316925881903743,
+  "max_drawdown": 0.2769130734655244,
+  "worst_month": -0.2043061265498306,
+  "worst_month_label": "2026-06",
+  "longest_losing_days": 7
+ },
+ "holdout_regression_alpha": {
+  "alpha_annual": 0.5308480986965408,
+  "t_newey_west": 1.0258769771849987,
+  "lags": 4,
+  "days": 184,
+  "betas": {
+   "btc_hold": 0.889884237509651
+  },
+  "passes": false
+ },
+ "frozen": true,
+ "forward_spec_sha256": "b1b1dc38cce9480fb806bbac650c48b9a9974e39b8883e813596cae1896db735",
+ "looks": [
+  "2026-12-01",
+  "2027-01-01",
+  "2027-02-01",
+  "2027-03-01",
+  "2027-04-01",
+  "2027-05-01",
+  "2027-06-01",
+  "2027-07-01",
+  "2027-08-01",
+  "2027-09-01",
+  "2027-10-01",
+  "2027-11-01",
+  "2027-12-01",
+  "2028-01-01",
+  "2028-02-01",
+  "2028-03-01",
+  "2028-04-01",
+  "2028-05-01",
+  "2028-06-01",
+  "2028-07-01",
+  "2028-08-01",
+  "2028-09-01",
+  "2028-10-01",
+  "2028-11-01"
+ ]
+}
