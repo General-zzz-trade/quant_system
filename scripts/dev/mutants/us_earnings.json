@@ -1,0 +1,12 @@
+[["parentheses not negative", "lab/us_earnings.py", "    return -value if negative else value", "    return value"],
+ ["forecast floor dropped", "lab/us_earnings.py", "    return (eps - forecast) / max(abs(forecast), 0.01)", "    return (eps - forecast) / max(abs(forecast), 1e-9)"],
+ ["window starts on the report day", "lab/us_earnings.py", "        before, after = int(index[i - 1]), int(index[i + 1])", "        before, after = int(index[i]), int(index[i + 1])"],
+ ["decide on the report day", "lab/us_earnings.py", "        out.append({\"ticker\": ticker, \"day\": str(row.date), \"decide\": after,", "        out.append({\"ticker\": ticker, \"day\": str(row.date), \"decide\": int(index[i]),"],
+ ["no market adjustment", "lab/us_earnings.py", "            adjusted = reaction - (float(qqq.at[after, \"close\"]) / float(qqq.at[before, \"close\"]) - 1.0)", "            adjusted = reaction"],
+ ["surprise threshold off", "lab/us_earnings.py", "SURPRISE_MIN, REACTION_MIN = 0.05, 0.03", "SURPRISE_MIN, REACTION_MIN = 0.0, 0.03"],
+ ["reaction threshold off", "lab/us_earnings.py", "SURPRISE_MIN, REACTION_MIN = 0.05, 0.03", "SURPRISE_MIN, REACTION_MIN = 0.05, 0.0"],
+ ["held one day longer", "lab/us_earnings.py", "        w.iloc[j:j + hold] = e[\"side\"] * EXPOSURE", "        w.iloc[j:j + hold + 1] = e[\"side\"] * EXPOSURE"],
+ ["full exposure", "lab/us_earnings.py", "EXPOSURE = 0.9 ", "EXPOSURE = 1.0 "],
+ ["exit read a bar early", "lab/us_earnings.py", "    after = curve.iloc[min(j + hold + 1, len(curve) - 1)]", "    after = curve.iloc[min(j + hold, len(curve) - 1)]"],
+ ["portfolio averages flat sleeves too", "lab/us_earnings.py", "    active = panel.ne(0.0)", "    active = panel.ne(99.0)"],
+ ["skipped rows not counted", "lab/us_earnings.py", "            skipped += 1\n", "            pass\n"]]

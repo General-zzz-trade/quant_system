@@ -53,7 +53,7 @@ def test_a_held_event_has_the_weight_for_its_holding_days_only():
     index = pd.Index(range(0, 20 * DAY, DAY))
     w = ue.weights(index, [{"decide": 3 * DAY, "side": -1}], hold=5)
     assert list(w[w != 0].index) == [3 * DAY, 4 * DAY, 5 * DAY, 6 * DAY, 7 * DAY]   # decided at 3..7, out at 8
-    assert (w[w != 0] == -ue.EXPOSURE).all()
+    assert (w[w != 0] == -0.9).all() and ue.EXPOSURE == 0.9          # under the broker's 1x exposure cap
     longs, shorts = ue.split(w)
     assert (longs == 0).all() and shorts.equals(w)
 
@@ -61,8 +61,9 @@ def test_a_held_event_has_the_weight_for_its_holding_days_only():
 def test_an_event_return_is_the_sleeve_equity_from_before_the_entry_to_after_the_exit():
     index = pd.Index(range(0, 20 * DAY, DAY))
     curve = pd.Series(100.0, index=index + DAY)                               # equity at each bar's close
-    curve.loc[(5 * DAY + DAY):] = 103.0
-    assert ue.event_return(curve, decide=3 * DAY, hold=5) == pytest.approx(0.03)
+    curve.iloc[5:9] = 103.0                                                   # held: up 3 %
+    curve.iloc[9:] = 102.9                                                    # the exit's bar: the fee is paid
+    assert ue.event_return(curve, decide=3 * DAY, hold=5) == pytest.approx(0.029)
 
 
 def test_the_portfolio_averages_the_open_sleeves_and_holds_cash_otherwise():
