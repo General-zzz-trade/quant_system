@@ -179,3 +179,18 @@ def test_a_daily_update_asks_for_few_bars_and_reports_progress(tmp_path):
     assert set(limits(daily).values()) == {pf.SHORT_LIMIT} and pf.SHORT_LIMIT < 100   # 12 hours missing: weight 1
     assert len(lines) == 3 and "3/3" in lines[-1]
     assert [int(r.split(",")[0]) for r in _rows(feed / "BTCUSDT_1h.csv.gz")][-1] == then - H
+
+
+def test_funding_requests_are_spaced_wider_than_binance_s_limit():
+    now, slept = [100.0], []
+
+    def sleep(s):
+        slept.append(s)
+        now[0] += s
+    gap = pf.FundingGap(clock=lambda: now[0], sleep=sleep)
+    gap()
+    gap()
+    now[0] += 0.5
+    gap()
+    assert slept == [pytest.approx(pf.FUNDING_GAP_S), pytest.approx(pf.FUNDING_GAP_S - 0.5)]
+    assert pf.FUNDING_GAP_S * 500 > 5 * 60 * 1.5                           # under two thirds of 500 per 5 minutes

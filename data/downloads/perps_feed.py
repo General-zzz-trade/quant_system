@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 from data.downloads.binance_public import FAPI, fetch_funding, fetch_klines, http_get
-from data.downloads.binance_um_all import COLUMNS, _wait_for_funding_slot
+from data.downloads.binance_um_all import COLUMNS
 
 H = 3_600_000
 BAR_HEADER = ",".join(COLUMNS)
@@ -34,6 +34,23 @@ EXCHANGE_INFO = f"{FAPI}/fapi/v1/exchangeInfo"
 STATE = "state.json"
 RETRY_PAUSE_S = 30.0
 SHORT_LIMIT = 99              # a page below 100 bars weighs 1 (1500 bars weigh 10)
+# Binance allows 500 funding requests per 5 minutes per IP; at 0.7 s apart (binance_um_all) a whole update lost 11 %
+# of its contracts to refusals on 2026-11-18, so the feed keeps 1.2 s (250 per 5 minutes).
+FUNDING_GAP_S = 1.2
+
+
+class FundingGap:
+    """Waits until ``FUNDING_GAP_S`` has passed since the last funding request."""
+
+    def __init__(self, *, clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep):
+        self.clock, self.sleep, self.last = clock, sleep, None
+
+    def __call__(self) -> None:
+        if self.last is not None:
+            wait = self.last + FUNDING_GAP_S - self.clock()
+            if wait > 0:
+                self.sleep(wait)
+        self.last = self.clock()
 Fetch = Callable[[str], bytes]
 
 
@@ -87,7 +104,7 @@ def _rules(entry: dict) -> dict:
 
 
 def update(feed: Path, *, now_ms: int | None = None, fetch: Fetch = http_get,
-           wait: Callable[[], None] = _wait_for_funding_slot, pause: Callable[[float], None] = time.sleep,
+           wait: Callable[[], None] | None = None, pause: Callable[[float], None] = time.sleep,
            progress: Callable[[str], None] | None = None, every: int = 50) -> dict:
     """Append every trading crypto perpetual's closed bars and settled funding since its last row. The contracts
     that fail are tried once more after ``RETRY_PAUSE_S``; what still fails is recorded with its error."""
@@ -95,6 +112,7 @@ def update(feed: Path, *, now_ms: int | None = None, fetch: Fetch = http_get,
     state = json.loads((feed / STATE).read_text())
     now_ms = int(time.time() * 1000) if now_ms is None else now_ms
     crypto, tradfi = contracts(json.loads(fetch(EXCHANGE_INFO)))
+    wait = FundingGap() if wait is None else wait
     new: list[str] = []
 
     def one(symbol: str) -> str | None:
