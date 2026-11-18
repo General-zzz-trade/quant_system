@@ -50,14 +50,14 @@
  [
   "follow instead of fade",
   "lab/us_weekend.py",
-  "\"target\": [fade_side(e[\"move\"]), 0.0]",
-  "\"target\": [-fade_side(e[\"move\"]), 0.0]"
+  "\"target\": [fade_side(e[\"move\"]) * EXPOSURE, 0.0]",
+  "\"target\": [-fade_side(e[\"move\"]) * EXPOSURE, 0.0]"
  ],
  [
   "never closed",
   "lab/us_weekend.py",
-  "\"target\": [fade_side(e[\"move\"]), 0.0]",
-  "\"target\": [fade_side(e[\"move\"]), fade_side(e[\"move\"])]"
+  "\"target\": [fade_side(e[\"move\"]) * EXPOSURE, 0.0]",
+  "\"target\": [fade_side(e[\"move\"]) * EXPOSURE, fade_side(e[\"move\"])]"
  ],
  [
   "funding multiplier ignored",
@@ -88,5 +88,11 @@
   "lab/us_weekend.py",
   "return e[\"move\"] != 0 and abs(e[\"move\"]) >= threshold",
   "return abs(e[\"move\"]) >= threshold"
+ ],
+ [
+  "full exposure again",
+  "lab/us_weekend.py",
+  "EXPOSURE = 0.9",
+  "EXPOSURE = 1.0"
  ]
 ]
