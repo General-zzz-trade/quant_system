@@ -27,7 +27,7 @@
 
 ## 冻结和前向
 
-- 两段的总收益都为正，按计划冻结：`forward_spec.json`，SHA-256 `b1b1dc38cce9480fb806bbac650c48b9a9974e39b8883e813596cae1896db735`。
+- 两段的总收益都为正，按计划冻结：`forward_spec.json`，SHA-256 `5f46ffb75c360fa82b1ffe9ace0cd23c4ca070714b8b5ca567c1baa672f8489d`（冻结当天改过一次格式，原来是 `b1b1dc38cce9480fb806bbac650c48b9a9974e39b8883e813596cae1896db735`，见 `spec_fix.md`）。
 - 24 次月度查看登记在 `research/forward_looks.jsonl`，结束日 2026-12-01 到 2028-11-01，研究名 `weak_portfolio_2026-11-18:frozen`。
 - 判定：Wald 序贯检验，无效 = 均值 0，有效 = 年化夏普 1.5。日收益标准差 0.02453（滚动前推的），α 0.05，β 0.2。
 - 查看程序还没写，要在第一次查看（2026-12-01 结束，12-08 每月重选下载快照之后）之前写好、测试好。

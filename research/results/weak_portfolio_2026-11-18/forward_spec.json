@@ -64,7 +64,8 @@
  ],
  "passed": false,
  "protocol": "research/protocols/2026-11-18-weak-signal-portfolio.md",
- "registered": "2026-11-18",
+ "registered": true,
+ "registered_on": "2026-11-18",
  "sequential": {
   "alpha": 0.05,
   "beta": 0.2,
