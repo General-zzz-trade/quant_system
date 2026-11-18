@@ -64,20 +64,24 @@ def test_the_earnings_snapshot_respects_the_forward_guard_and_is_written_once(tm
 
 # -- DefiLlama ---------------------------------------------------------------------------------------------------------
 PROTOCOLS = [{"name": "Uniswap V3", "slug": "uniswap-v3", "symbol": "UNI", "gecko_id": "uniswap", "category": "Dexs",
-              "mcap": 5e9},
+              "parentProtocol": "parent#uniswap", "mcap": 5e9},
+             {"name": "Uniswap V2", "slug": "uniswap-v2", "symbol": "UNI", "gecko_id": "uniswap", "category": "Dexs",
+              "parentProtocol": "parent#uniswap"},
              {"name": "Aave V3", "slug": "aave-v3", "symbol": "AAVE", "gecko_id": "aave", "category": "Lending"},
              {"name": "No token", "slug": "none", "symbol": "-", "gecko_id": None, "category": "Dexs"},
-             {"name": "Pepe thing", "slug": "pepe", "symbol": "PEPE", "gecko_id": None, "category": "Meme"},
-             {"name": "Uni child", "slug": "uni-child", "symbol": "uni", "gecko_id": None, "category": "Dexs"}]
+             {"name": "Bank one", "slug": "bank-one", "symbol": "BANK", "gecko_id": "bank-one", "category": "Dexs"},
+             {"name": "Bank two", "slug": "bank-two", "symbol": "bank", "gecko_id": "bank-two", "category": "Yield"},
+             {"name": "Pepe thing", "slug": "pepe", "symbol": "pepe", "gecko_id": None, "category": "Meme"}]
 
 
 def _chart(points):
     return json.dumps({"name": "x", "totalDataChart": points}).encode()
 
 
-def test_protocols_are_matched_to_perpetuals_by_token_symbol():
-    bases = {"UNI", "AAVE", "PEPE"}
-    assert [p["slug"] for p in dl.select(PROTOCOLS, bases)] == ["aave-v3", "pepe", "uni-child", "uniswap-v3"]
+def test_tokens_are_matched_by_symbol_children_go_to_their_parent_and_ambiguous_symbols_are_left_out():
+    targets, ambiguous = dl.select(PROTOCOLS, {"UNI", "AAVE", "PEPE", "BANK"})
+    assert targets == {"AAVE": ["aave-v3"], "PEPE": ["pepe"], "UNI": ["uniswap"]}   # the parent sums its versions
+    assert ambiguous == {"BANK": ["bank-one", "bank-two"]}                           # two coins share the symbol
     assert dl.bases(["UNIUSDT", "1000PEPEUSDT", "BTCUSDT"]) == {"UNI", "PEPE", "BTC"}
 
 
@@ -90,16 +94,15 @@ def test_a_chart_is_cut_before_the_end():
 def test_the_fees_snapshot_writes_each_series_and_records_what_failed(tmp_path):
     import urllib.error
     pages = {"/protocols": json.dumps(PROTOCOLS).encode(),
-             "uniswap-v3?dataType=dailyFees": _chart([[1794441600, 10]]),
-             "uniswap-v3?dataType=dailyRevenue": _chart([[1794441600, 4]]),
+             "fees/uniswap?dataType=dailyFees": _chart([[1794441600, 10]]),
+             "fees/uniswap?dataType=dailyRevenue": _chart([[1794441600, 4]]),
              "aave-v3?dataType=dailyFees": urllib.error.HTTPError("u", 404, "no adapter", {}, None),
-             "aave-v3?dataType=dailyRevenue": urllib.error.HTTPError("u", 404, "no adapter", {}, None),
-             "uni-child?dataType": _chart([])}
-    m = dl.snapshot(tmp_path / "d", bases={"UNI", "AAVE"}, end=date(2026, 11, 13), fetch=Fetch(pages), pause=0,
-                    now=lambda: "2026-11-18T00:00:00Z")
+             "aave-v3?dataType=dailyRevenue": urllib.error.HTTPError("u", 404, "no adapter", {}, None)}
+    m = dl.snapshot(tmp_path / "d", bases={"UNI", "AAVE", "BANK"}, end=date(2026, 11, 13), fetch=Fetch(pages),
+                    pause=0, now=lambda: "2026-11-18T00:00:00Z")
     names = sorted(p.name for p in (tmp_path / "d").iterdir())
-    assert names == ["manifest.json", "protocols.json", "uniswap-v3_dailyFees.csv", "uniswap-v3_dailyRevenue.csv"]
-    assert m["missing"] == {"aave-v3_dailyFees": "HTTPError", "aave-v3_dailyRevenue": "HTTPError",
-                            "uni-child_dailyFees": "empty series", "uni-child_dailyRevenue": "empty series"}
+    assert names == ["UNI__uniswap_dailyFees.csv", "UNI__uniswap_dailyRevenue.csv", "manifest.json", "protocols.json"]
+    assert m["missing"] == {"AAVE__aave-v3_dailyFees": "HTTPError", "AAVE__aave-v3_dailyRevenue": "HTTPError"}
+    assert m["ambiguous"] == {"BANK": ["bank-one", "bank-two"]} and m["tokens"] == 2
     kept = json.loads((tmp_path / "d" / "protocols.json").read_text())
-    assert [p["slug"] for p in kept] == ["aave-v3", "uni-child", "uniswap-v3"] and "mcap" not in kept[0]
+    assert {p["slug"] for p in kept} == {"aave-v3", "uniswap-v2", "uniswap-v3"} and all("mcap" not in p for p in kept)
