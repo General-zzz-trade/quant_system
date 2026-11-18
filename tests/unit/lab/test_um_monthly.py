@@ -123,3 +123,10 @@ def test_only_the_line_s_survivors_reach_the_final_check():
     screened = {"ideas": {"a": {"survives": True}, "b": {"survives": True}, "c": {"survives": False}}}
     line = {"ideas": {"a": {"survives": False}, "b": {"survives": True}, "c": {"survives": False}}}
     assert {n for n, r in monthly.with_line(screened, line)["ideas"].items() if r["survives"]} == {"b"}
+
+
+def test_an_idea_survives_only_when_every_gate_passes():
+    assert monthly.survives({"screen": True, "family_deflated_at_least_0.9": True, "regression_alpha": True,
+                             "portfolio_gain": True})
+    assert not monthly.survives({"screen": True, "family_deflated_at_least_0.9": False, "regression_alpha": True,
+                                 "portfolio_gain": True})

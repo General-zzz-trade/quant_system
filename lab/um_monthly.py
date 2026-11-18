@@ -107,8 +107,13 @@ def line(j: judge.Judge, screened: dict, *, variants=VARIANTS) -> dict:
         checks = {"screen": bool(row["survives"]), "family_deflated_at_least_0.9": deflated["passes"],
                   "regression_alpha": alpha["passes"], "portfolio_gain": gain["passes"]}
         ideas[name] = {"family_deflated": deflated, "regression_alpha": alpha, "portfolio_gain": gain,
-                       "power": power, "checks": checks, "survives": all(checks.values())}
+                       "power": power, "checks": checks, "survives": survives(checks)}
     return {"benchmarks": {k: lab.summary(v) for k, v in bench.items()}, "ideas": ideas}
+
+
+def survives(checks: dict) -> bool:
+    """Every gate, not any one of them."""
+    return all(checks.values())
 
 
 def with_line(screened: dict, verdict: dict) -> dict:
@@ -260,4 +265,5 @@ if __name__ == "__main__":
     main()
 
 
-__all__ = ["MonthlyRun", "VARIANTS", "line", "monthly_periods", "plan", "registered", "snapshot_end", "with_line"]
+__all__ = ["MonthlyRun", "VARIANTS", "line", "monthly_periods", "plan", "registered", "snapshot_end", "survives",
+           "with_line"]
