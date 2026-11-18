@@ -16,6 +16,8 @@ perpetual supplies the costs. A replay goes through the shared broker (``lab.sim
 - NAV files (SPY, GLD) have one price a day and no volume: their bars are flat (open = high = low = close = NAV, so an
   exchange stop fills at the next NAV, which flatters stops) and their volume is ``NAV_VOLUME``, so the broker's
   participation cap never binds (at this capital it would not bind on SPY's real volume either).
+- FRED index levels (the Nasdaq Composite since 1971, added 2026-11-18 for a long check) are flat bars like a NAV,
+  scaled to end at 100, at the costs of the perpetual that tracks them (NASDAQCOM -> QQQUSDT).
 - ``leverage`` as ``lab.um_lab.replay``: weights times the leverage, isolated margin at the largest exchange leverage
   the stop allows.
 
@@ -42,16 +44,23 @@ US_SNAPSHOT = ROOT / "data_files" / "us_equity_daily_2026-11-12"
 PERPS_SNAPSHOT = ROOT / "data_files" / "binance_usdt_perps_2020_2026-11-12"
 NAV_VOLUME = 1e9
 # The underlying -> the perpetual whose costs it carries. GLD stands in for gold (XAUUSDT); the others share a name.
-PERPETUAL = {"GLD": "XAUUSDT"}
+PERPETUAL = {"GLD": "XAUUSDT", "NASDAQCOM": "QQQUSDT"}
 
 
 def perpetual(ticker: str) -> str:
     return PERPETUAL.get(ticker, f"{ticker}USDT")
 
 
-def daily_frame(ticker: str, snapshot: Path = US_SNAPSHOT, *, nav: bool = False) -> pd.DataFrame:
-    """Daily bars indexed by the day's midnight UTC (ms): open, high, low, close, volume."""
-    if nav:
+def daily_frame(ticker: str, snapshot: Path = US_SNAPSHOT, *, nav: bool = False, index: bool = False) -> pd.DataFrame:
+    """Daily bars indexed by the day's midnight UTC (ms): open, high, low, close, volume. ``index``: a FRED index level
+    (``{ticker}_index.csv``), flat bars like a NAV, scaled so its last close is 100 (only returns matter, and the
+    perpetual's lot step then fits the price)."""
+    if index:
+        raw = pd.read_csv(Path(snapshot) / f"{ticker}_index.csv").dropna(subset=["close"])
+        level = raw["close"].astype(float).to_numpy()
+        price = level * 100.0 / level[-1]
+        df = pd.DataFrame({"open": price, "high": price, "low": price, "close": price, "volume": NAV_VOLUME})
+    elif nav:
         raw = pd.read_csv(Path(snapshot) / f"{ticker}_nav.csv").dropna(subset=["nav"])
         price = raw["nav"].astype(float).to_numpy()
         df = pd.DataFrame({"open": price, "high": price, "low": price, "close": price, "volume": NAV_VOLUME})
@@ -80,7 +89,7 @@ def replay_daily(ticker: str, weights: pd.Series, *, us_snapshot: Path = US_SNAP
                  start: int | None = None, end: int | None = None, nav: bool = False, cost_multiplier: int = 1,
                  funding_multiplier: float = 1.0, stop_pct: str = "0", pause_ms: int | None = None,
                  reenter_after_stop: str = "pause", leverage: str = "1",
-                 daily_rate: float | None = None) -> dict:
+                 daily_rate: float | None = None, index: bool = False) -> dict:
     """Target weights (decided at each day's close, index = the day's midnight UTC) through the shared broker.
     Returns the equity at each bar's close (``curve``), the fills, the funding paid per bar (open time -> cashflow) and
     the calendar days each bar's funding covered. ``daily_rate`` replaces the perpetual's measured rate (a study's
@@ -93,7 +102,7 @@ def replay_daily(ticker: str, weights: pd.Series, *, us_snapshot: Path = US_SNAP
     exchange = um_lab.exchange_leverage(stop_pct) if lev != 1 else 0
     if lev != 1 and (not 1 <= lev <= MAX_TOTAL_LEVERAGE or D(stop_pct) <= 0 or not lev <= exchange):
         raise ValueError(f"a replay at leverage {leverage} needs a stop that allows it (stop {stop_pct}: {exchange}x)")
-    df = daily_frame(ticker, us_snapshot, nav=nav)
+    df = daily_frame(ticker, us_snapshot, nav=nav, index=index)
     first = int(df.index[0]) if start is None else start
     bars = [Bar(int(t), D(repr(r.open)), D(repr(r.high)), D(repr(r.low)), D(repr(r.close)), D(repr(r.volume)),
                 interval_ms=DAY) for t, r in zip(df.index, df.itertuples())]
