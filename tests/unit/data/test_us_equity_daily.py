@@ -51,7 +51,7 @@ def _xlsx(rows):
 NAV = [["Fund Name:", "SPDR S&P 500 ETF Trust"], ["Ticker Symbol:", "SPY"],
        ["Date", "NAV", "Shares Outstanding", "Total Net Assets"],
        ["16-Nov-2026", "739.7", "1", "2"], ["12-Nov-2026", "757.0", "1", "2"], ["31-Jan-2003", "85.5", "1", "2"],
-       [], ["Past performance is not a reliable indicator of future performance. Visit www.ssga.com"]]   # as SPDR's
+       [], ["Past performance is not a reliable indicator of future performance. Visit www.ssga.com", "", ""]]
 
 
 class Fetch:
