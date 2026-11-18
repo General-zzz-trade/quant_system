@@ -131,3 +131,25 @@ def test_the_tickers_come_from_the_recorded_tradfi_list(tmp_path):
     path.write_text(json.dumps({"underlying": {"NVDAUSDT": "EQUITY", "XAUUSDT": "COMMODITY", "HK0700USDT": "HK_EQUITY",
                                                "OPENAIUSDT": "PREMARKET", "SPYUSDT": "EQUITY"}}))
     assert us.tickers(path) == ["NVDA", "SPY"]
+
+
+# -- FRED index levels (the plan's amendment of 2026-11-18: the Nasdaq Composite since 1971) ----------------------
+FRED_CSV = b"observation_date,NASDAQCOM\n1971-02-05,100.000\n1971-02-08,100.840\n1971-02-09,.\n2026-11-12,23000.5\n" \
+           b"2026-11-13,23100.0\n"
+
+
+def test_a_fred_series_is_parsed_skipping_missing_days_and_cut():
+    rows, dropped = us.parse_fred(FRED_CSV, END)
+    assert rows == [{"date": "1971-02-05", "close": "100.000"}, {"date": "1971-02-08", "close": "100.840"},
+                    {"date": "2026-11-12", "close": "23000.5"}]
+    assert dropped == 1
+
+
+def test_a_fred_only_snapshot_writes_the_index_file_and_its_source(tmp_path):
+    out = tmp_path / "fred"
+    manifest = us.snapshot(out, [], nav=[], fred=["NASDAQCOM"], end=END, fetch=Fetch({"id=NASDAQCOM": FRED_CSV}),
+                           pause=0, now=lambda: "2026-11-18T00:00:00Z")
+    assert sorted(p.name for p in out.iterdir()) == ["NASDAQCOM_index.csv", "manifest.json"]
+    entry = manifest["files"]["NASDAQCOM_index.csv"]
+    assert entry["source"] == "fred" and entry["first"] == "1971-02-05" and entry["last"] == "2026-11-12"
+    assert "fred.stlouisfed.org" in manifest["sources"]["fred"]

@@ -160,3 +160,32 @@ def test_a_given_daily_rate_replaces_the_measured_one(snaps):
     stressed, _ = _replay(snaps, weights, daily_rate=0.20 / 365)          # above the 0.03 % a day measured
     assert stressed["daily_funding_rate"] == pytest.approx(0.20 / 365)
     assert sum(stressed["funding"].values()) < sum(measured["funding"].values()) < 0
+
+
+# -- index levels (the plan's amendment of 2026-11-18: the Nasdaq Composite since 1971) -----------------------------
+def _index_file(us_dir, levels):
+    days = _days(len(levels))
+    pd.DataFrame({"date": [d.date().isoformat() for d in days], "close": levels}).to_csv(us_dir / "NDXC_index.csv",
+                                                                                     index=False)
+
+
+def test_an_index_becomes_flat_bars_scaled_to_end_at_100(snaps):
+    us_dir, _ = snaps
+    _index_file(us_dir, np.linspace(100.0, 23000.0, 40))
+    df = us.daily_frame("NDXC", us_dir, index=True)
+    assert df["close"].iloc[-1] == pytest.approx(100.0) and (df["open"] == df["close"]).all()
+    assert df["close"].iloc[0] == pytest.approx(100.0 * 100.0 / 23000.0)       # returns unchanged
+    assert (df["volume"] == us.NAV_VOLUME).all()
+
+
+def test_an_index_replays_at_its_perpetual_s_costs(snaps):
+    us_dir, perps = snaps
+    _index_file(us_dir, np.linspace(100.0, 23000.0, 40))
+    df = us.daily_frame("NDXC", us_dir, index=True)
+    r = us.replay_daily("NDXC", pd.Series(0.5, index=df.index), us_snapshot=us_dir, perps_snapshot=perps,
+                        perp="QQQUSDT", index=True, starting_balance="1000")
+    assert r["fills"] and r["perp"] == "QQQUSDT"
+
+
+def test_the_nasdaq_composite_carries_qqq_s_costs():
+    assert us.perpetual("NASDAQCOM") == "QQQUSDT" and us.perpetual("GLD") == "XAUUSDT"
