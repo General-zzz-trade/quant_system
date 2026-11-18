@@ -1,0 +1,527 @@
+{
+ "info": {
+  "contracts_seen": 619,
+  "contracts_ever_in_universe": 416,
+  "rows": 174879,
+  "mean_names_per_day": 98.7459062676454
+ },
+ "signal_trades": 5380,
+ "accepted": 1069,
+ "missing_vol_prediction": 0,
+ "configs": {
+  "F0S0": {
+   "filter": "none",
+   "size": "equal",
+   "summary": {
+    "days": 1414,
+    "total_return": -1.35426092193338,
+    "cagr": -1.0,
+    "sharpe": -0.7875663159418699,
+    "max_drawdown": 1.892611582819348,
+    "worst_month": -476.5600072044113,
+    "worst_month_label": "2025-11",
+    "longest_losing_days": 10
+   },
+   "double_costs": {
+    "days": 1414,
+    "total_return": -1.417484700779942,
+    "cagr": -1.0,
+    "sharpe": -0.21106937830613207,
+    "max_drawdown": 1.982876551136075,
+    "worst_month": -6.117764638992823,
+    "worst_month_label": "2023-12",
+    "longest_losing_days": 10
+   },
+   "round_trips": 1042,
+   "trades": 1047,
+   "deflated_probability": 2.1670106514450656e-76,
+   "checks": {
+    "return_above_0": false,
+    "beats_btc_hold": false,
+    "beats_btc_vol_target": false,
+    "deflated_at_least_0.5": false,
+    "round_trips_at_least_50": true,
+    "double_costs_return_above_0": false
+   },
+   "line": false,
+   "by_year": {
+    "2022": {
+     "days": 364,
+     "total_return": -0.4907137797106075,
+     "cagr": -0.49165696674013104,
+     "sharpe": 0.2830289551207795,
+     "max_drawdown": 0.7700461853580676,
+     "worst_month": -0.3021836167841673,
+     "worst_month_label": "2022-11",
+     "longest_losing_days": 10
+    },
+    "2023": {
+     "days": 365,
+     "total_return": -0.8082274737888526,
+     "cagr": -0.8082274737888526,
+     "sharpe": 0.9898712701881955,
+     "max_drawdown": 0.9602302756892203,
+     "worst_month": -0.5881257897208921,
+     "worst_month_label": "2023-11",
+     "longest_losing_days": 6
+    },
+    "2024": {
+     "days": 366,
+     "total_return": 1.3831029074861818,
+     "cagr": 1.3774552533007594,
+     "sharpe": -1.2667620178577532,
+     "max_drawdown": 2.8525667220988113,
+     "worst_month": -13.964421547110174,
+     "worst_month_label": "2024-05",
+     "longest_losing_days": 8
+    },
+    "2025": {
+     "days": 319,
+     "total_return": -2.5220612768269484,
+     "cagr": -1.0,
+     "sharpe": -1.0252081628323138,
+     "max_drawdown": 10.430346461343936,
+     "worst_month": -476.5600072044113,
+     "worst_month_label": "2025-11",
+     "longest_losing_days": 4
+    }
+   },
+   "long": {
+    "trades": 582,
+    "mean_return": 0.01897041993308059
+   },
+   "short": {
+    "trades": 465,
+    "mean_return": -0.05296606530795418
+   },
+   "at_150_usdt_below_minimum": 0.038204393505253106
+  },
+  "F1S0": {
+   "filter": "trend_top20",
+   "size": "equal",
+   "summary": {
+    "days": 1414,
+    "total_return": -0.9321365804837176,
+    "cagr": -0.5006481312567953,
+    "sharpe": 0.431285318684649,
+    "max_drawdown": 0.9832035786300246,
+    "worst_month": -0.7564675408289987,
+    "worst_month_label": "2025-10",
+    "longest_losing_days": 10
+   },
+   "double_costs": {
+    "days": 1414,
+    "total_return": -1.1266960061963252,
+    "cagr": -1.0,
+    "sharpe": 0.715286708906641,
+    "max_drawdown": 1.0957959417343266,
+    "worst_month": -13.629062246013003,
+    "worst_month_label": "2024-11",
+    "longest_losing_days": 10
+   },
+   "round_trips": 744,
+   "trades": 749,
+   "deflated_probability": 2.112613962647424e-11,
+   "checks": {
+    "return_above_0": false,
+    "beats_btc_hold": false,
+    "beats_btc_vol_target": false,
+    "deflated_at_least_0.5": false,
+    "round_trips_at_least_50": true,
+    "double_costs_return_above_0": false
+   },
+   "line": false,
+   "by_year": {
+    "2022": {
+     "days": 364,
+     "total_return": -0.04577176422504203,
+     "cagr": -0.04589458016276249,
+     "sharpe": 0.33029282681300737,
+     "max_drawdown": 0.5747181363558169,
+     "worst_month": -0.20103606363298554,
+     "worst_month_label": "2022-09",
+     "longest_losing_days": 9
+    },
+    "2023": {
+     "days": 365,
+     "total_return": -0.14459598085069236,
+     "cagr": -0.14459598085069236,
+     "sharpe": -0.019260050301525167,
+     "max_drawdown": 0.4508984016970674,
+     "worst_month": -0.1923111456633838,
+     "worst_month_label": "2023-10",
+     "longest_losing_days": 10
+    },
+    "2024": {
+     "days": 366,
+     "total_return": -0.10211455579690831,
+     "cagr": -0.10185027170985805,
+     "sharpe": 0.8984751872593993,
+     "max_drawdown": 0.9264609996092179,
+     "worst_month": -0.5245345589709711,
+     "worst_month_label": "2024-10",
+     "longest_losing_days": 9
+    },
+    "2025": {
+     "days": 319,
+     "total_return": -0.9074042063857303,
+     "cagr": -0.9342988350986778,
+     "sharpe": 0.282063720343566,
+     "max_drawdown": 0.9589347688300605,
+     "worst_month": -0.7564675408289987,
+     "worst_month_label": "2025-10",
+     "longest_losing_days": 9
+    }
+   },
+   "long": {
+    "trades": 347,
+    "mean_return": 0.004817625341742126
+   },
+   "short": {
+    "trades": 402,
+    "mean_return": -0.027344552566554808
+   },
+   "at_150_usdt_below_minimum": 0.06408544726301736
+  },
+  "F0S1": {
+   "filter": "none",
+   "size": "pred_vol",
+   "summary": {
+    "days": 1414,
+    "total_return": -1.6418636318870496,
+    "cagr": -1.0,
+    "sharpe": 0.5544823970677666,
+    "max_drawdown": 1.5450923459242674,
+    "worst_month": -1.281240317684015,
+    "worst_month_label": "2025-05",
+    "longest_losing_days": 10
+   },
+   "double_costs": {
+    "days": 1414,
+    "total_return": -1.9152608302467455,
+    "cagr": -1.0,
+    "sharpe": -0.7399159932498739,
+    "max_drawdown": 1.811978553304401,
+    "worst_month": -101.77905137121925,
+    "worst_month_label": "2023-12",
+    "longest_losing_days": 10
+   },
+   "round_trips": 1042,
+   "trades": 1047,
+   "deflated_probability": 9.14219318612206e-42,
+   "checks": {
+    "return_above_0": false,
+    "beats_btc_hold": false,
+    "beats_btc_vol_target": true,
+    "deflated_at_least_0.5": false,
+    "round_trips_at_least_50": true,
+    "double_costs_return_above_0": false
+   },
+   "line": false,
+   "by_year": {
+    "2022": {
+     "days": 364,
+     "total_return": -0.421746762152283,
+     "cagr": -0.42261625718615203,
+     "sharpe": 0.14664427059114452,
+     "max_drawdown": 0.7136055787276352,
+     "worst_month": -0.2631657149590927,
+     "worst_month_label": "2022-09",
+     "longest_losing_days": 10
+    },
+    "2023": {
+     "days": 365,
+     "total_return": -0.4906613392763973,
+     "cagr": -0.4906613392763973,
+     "sharpe": 0.36348468304027687,
+     "max_drawdown": 0.8858673475430765,
+     "worst_month": -0.40513013883005944,
+     "worst_month_label": "2023-10",
+     "longest_losing_days": 5
+    },
+    "2024": {
+     "days": 366,
+     "total_return": 1.7207353358488193,
+     "cagr": 1.7133050905456622,
+     "sharpe": 1.5781810670902379,
+     "max_drawdown": 0.8802907288528535,
+     "worst_month": -0.6978133579066345,
+     "worst_month_label": "2024-01",
+     "longest_losing_days": 10
+    },
+    "2025": {
+     "days": 319,
+     "total_return": -1.8009985996711735,
+     "cagr": -1.0,
+     "sharpe": 1.1512165603267726,
+     "max_drawdown": 1.916201458780451,
+     "worst_month": -1.281240317684015,
+     "worst_month_label": "2025-05",
+     "longest_losing_days": 5
+    }
+   },
+   "long": {
+    "trades": 582,
+    "mean_return": 0.0017992016388927452
+   },
+   "short": {
+    "trades": 465,
+    "mean_return": -0.03772114981934384
+   },
+   "at_150_usdt_below_minimum": 0.039159503342884434
+  },
+  "F1S1": {
+   "filter": "trend_top20",
+   "size": "pred_vol",
+   "summary": {
+    "days": 1414,
+    "total_return": -0.8722470746662854,
+    "cagr": -0.41207102147809205,
+    "sharpe": 0.24017583155819405,
+    "max_drawdown": 0.9512996879881127,
+    "worst_month": -0.6593120269177138,
+    "worst_month_label": "2025-10",
+    "longest_losing_days": 12
+   },
+   "double_costs": {
+    "days": 1414,
+    "total_return": -1.0576948385238127,
+    "cagr": -1.0,
+    "sharpe": -0.11718539529312783,
+    "max_drawdown": 1.0578946464825858,
+    "worst_month": -1.1115196115609314,
+    "worst_month_label": "2025-10",
+    "longest_losing_days": 12
+   },
+   "round_trips": 744,
+   "trades": 749,
+   "deflated_probability": 3.4008176861843352e-12,
+   "checks": {
+    "return_above_0": false,
+    "beats_btc_hold": false,
+    "beats_btc_vol_target": false,
+    "deflated_at_least_0.5": false,
+    "round_trips_at_least_50": true,
+    "double_costs_return_above_0": false
+   },
+   "line": false,
+   "by_year": {
+    "2022": {
+     "days": 364,
+     "total_return": -0.04379024320711822,
+     "cagr": -0.04390786547918546,
+     "sharpe": 0.332077647333028,
+     "max_drawdown": 0.5736733662439499,
+     "worst_month": -0.19884755614591376,
+     "worst_month_label": "2022-09",
+     "longest_losing_days": 12
+    },
+    "2023": {
+     "days": 365,
+     "total_return": -0.14175408820309987,
+     "cagr": -0.14175408820309987,
+     "sharpe": -0.0219083922363558,
+     "max_drawdown": 0.4496544145103595,
+     "worst_month": -0.19270117793102526,
+     "worst_month_label": "2023-10",
+     "longest_losing_days": 10
+    },
+    "2024": {
+     "days": 366,
+     "total_return": 0.00899065668460275,
+     "cagr": 0.008965982253910099,
+     "sharpe": 0.7996444502991948,
+     "max_drawdown": 0.8667411051037366,
+     "worst_month": -0.449738769334186,
+     "worst_month_label": "2024-10",
+     "longest_losing_days": 9
+    },
+    "2025": {
+     "days": 319,
+     "total_return": -0.8457167443147682,
+     "cagr": -0.882165122112772,
+     "sharpe": -0.27868313741849327,
+     "max_drawdown": 0.8940923186773452,
+     "worst_month": -0.6593120269177138,
+     "worst_month_label": "2025-10",
+     "longest_losing_days": 9
+    }
+   },
+   "long": {
+    "trades": 347,
+    "mean_return": 0.005906246266189341
+   },
+   "short": {
+    "trades": 402,
+    "mean_return": -0.02679440928946241
+   },
+   "at_150_usdt_below_minimum": 0.06408544726301736
+  }
+ },
+ "btc_eth": {
+  "F0S0": {
+   "summary": {
+    "days": 1414,
+    "total_return": -0.3293949550049673,
+    "cagr": -0.09800243257150731,
+    "sharpe": 0.10203319805565488,
+    "max_drawdown": 0.7646409872040675,
+    "worst_month": -0.32708172512735556,
+    "worst_month_label": "2022-11",
+    "longest_losing_days": 11
+   },
+   "round_trips": 103,
+   "trades": 114
+  },
+  "F1S0": {
+   "summary": {
+    "days": 1414,
+    "total_return": 0.12069092119161717,
+    "cagr": 0.029849896542542442,
+    "sharpe": 0.32077908791009163,
+    "max_drawdown": 0.6790609797865418,
+    "worst_month": -0.2089253139582703,
+    "worst_month_label": "2025-10",
+    "longest_losing_days": 7
+   },
+   "round_trips": 88,
+   "trades": 96
+  },
+  "F0S1": {
+   "summary": {
+    "days": 1414,
+    "total_return": -0.3293949550049673,
+    "cagr": -0.09800243257150731,
+    "sharpe": 0.10203319805565488,
+    "max_drawdown": 0.7646409872040675,
+    "worst_month": -0.32708172512735556,
+    "worst_month_label": "2022-11",
+    "longest_losing_days": 11
+   },
+   "round_trips": 103,
+   "trades": 114
+  },
+  "F1S1": {
+   "summary": {
+    "days": 1414,
+    "total_return": 0.12069092119161717,
+    "cagr": 0.029849896542542442,
+    "sharpe": 0.32077908791009163,
+    "max_drawdown": 0.6790609797865418,
+    "worst_month": -0.2089253139582703,
+    "worst_month_label": "2025-10",
+    "longest_losing_days": 7
+   },
+   "round_trips": 88,
+   "trades": 96
+  }
+ },
+ "benchmarks": {
+  "btc_hold": {
+   "days": 1415,
+   "total_return": 1.067932091712371,
+   "cagr": 0.20612619266627275,
+   "sharpe": 0.6203830529922468,
+   "max_drawdown": 0.6693592932300725,
+   "worst_month": -0.3734314952606783,
+   "worst_month_label": "2022-06",
+   "longest_losing_days": 8
+  },
+  "btc_vol_target": {
+   "days": 1415,
+   "total_return": 0.6751484874433051,
+   "cagr": 0.14233812115685152,
+   "sharpe": 0.5391385653122119,
+   "max_drawdown": 0.5450189377446469,
+   "worst_month": -0.2141593003865453,
+   "worst_month_label": "2022-06",
+   "longest_losing_days": 8
+  }
+ },
+ "n_trials": 2552,
+ "sharpe_std": 1.051403949917055,
+ "filter_value": {
+  "difference": 0.014164734251820044,
+  "welch_t": 0.46034158252148866,
+  "by_year": {
+   "2022": 0.0021460490122776343,
+   "2023": 0.02708758853044616,
+   "2024": 0.06499710647854182,
+   "2025": -0.05499711370421907
+  },
+  "accepted": 237,
+  "rejected": 810,
+  "checks": {
+   "difference_above_0": true,
+   "welch_t_at_least_2": false,
+   "years_at_least_3": true,
+   "each_side_at_least_50": true
+  },
+  "value": false
+ },
+ "filter_value_by_side": {
+  "long": {
+   "difference": 0.03832562884266853,
+   "welch_t": 0.7239722083711314,
+   "by_year": {
+    "2022": -0.01642607060256828,
+    "2023": 0.0677461486027249,
+    "2024": 0.15397657570431378,
+    "2025": -0.17475553242971742
+   },
+   "accepted": 126,
+   "rejected": 456,
+   "checks": {
+    "difference_above_0": true,
+    "welch_t_at_least_2": false,
+    "years_at_least_3": false,
+    "each_side_at_least_50": true
+   },
+   "value": false
+  },
+  "short": {
+   "difference": -0.00915187332111067,
+   "welch_t": -0.45392359002769067,
+   "by_year": {
+    "2022": -0.00765553668230142,
+    "2023": -0.02294694433347453,
+    "2024": -0.07176777521599269,
+    "2025": 0.01918151460185541
+   },
+   "accepted": 111,
+   "rejected": 354,
+   "checks": {
+    "difference_above_0": false,
+    "welch_t_at_least_2": false,
+    "years_at_least_3": false,
+    "each_side_at_least_50": true
+   },
+   "value": false
+  }
+ },
+ "sizing_value": {
+  "pairs": {
+   "F0S1 vs F0S0": {
+    "sharpe": [
+     0.5544823970677666,
+     -0.7875663159418699
+    ],
+    "max_drawdown": [
+     1.5450923459242674,
+     1.892611582819348
+    ]
+   },
+   "F1S1 vs F1S0": {
+    "sharpe": [
+     0.24017583155819405,
+     0.431285318684649
+    ],
+    "max_drawdown": [
+     0.9512996879881127,
+     0.9832035786300246
+    ]
+   }
+  },
+  "value": false
+ }
+}
