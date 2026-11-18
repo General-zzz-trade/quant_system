@@ -67,7 +67,8 @@ PROTOCOLS = [{"name": "Uniswap V3", "slug": "uniswap-v3", "symbol": "UNI", "geck
               "mcap": 5e9},
              {"name": "Aave V3", "slug": "aave-v3", "symbol": "AAVE", "gecko_id": "aave", "category": "Lending"},
              {"name": "No token", "slug": "none", "symbol": "-", "gecko_id": None, "category": "Dexs"},
-             {"name": "Pepe thing", "slug": "pepe", "symbol": "PEPE", "gecko_id": None, "category": "Meme"}]
+             {"name": "Pepe thing", "slug": "pepe", "symbol": "PEPE", "gecko_id": None, "category": "Meme"},
+             {"name": "Uni child", "slug": "uni-child", "symbol": "uni", "gecko_id": None, "category": "Dexs"}]
 
 
 def _chart(points):
@@ -76,7 +77,7 @@ def _chart(points):
 
 def test_protocols_are_matched_to_perpetuals_by_token_symbol():
     bases = {"UNI", "AAVE", "PEPE"}
-    assert [p["slug"] for p in dl.select(PROTOCOLS, bases)] == ["aave-v3", "pepe", "uniswap-v3"]
+    assert [p["slug"] for p in dl.select(PROTOCOLS, bases)] == ["aave-v3", "pepe", "uni-child", "uniswap-v3"]
     assert dl.bases(["UNIUSDT", "1000PEPEUSDT", "BTCUSDT"]) == {"UNI", "PEPE", "BTC"}
 
 
@@ -92,11 +93,13 @@ def test_the_fees_snapshot_writes_each_series_and_records_what_failed(tmp_path):
              "uniswap-v3?dataType=dailyFees": _chart([[1794441600, 10]]),
              "uniswap-v3?dataType=dailyRevenue": _chart([[1794441600, 4]]),
              "aave-v3?dataType=dailyFees": urllib.error.HTTPError("u", 404, "no adapter", {}, None),
-             "aave-v3?dataType=dailyRevenue": urllib.error.HTTPError("u", 404, "no adapter", {}, None)}
+             "aave-v3?dataType=dailyRevenue": urllib.error.HTTPError("u", 404, "no adapter", {}, None),
+             "uni-child?dataType": _chart([])}
     m = dl.snapshot(tmp_path / "d", bases={"UNI", "AAVE"}, end=date(2026, 11, 13), fetch=Fetch(pages), pause=0,
                     now=lambda: "2026-11-18T00:00:00Z")
     names = sorted(p.name for p in (tmp_path / "d").iterdir())
     assert names == ["manifest.json", "protocols.json", "uniswap-v3_dailyFees.csv", "uniswap-v3_dailyRevenue.csv"]
-    assert m["missing"] == {"aave-v3_dailyFees": "HTTPError", "aave-v3_dailyRevenue": "HTTPError"}
+    assert m["missing"] == {"aave-v3_dailyFees": "HTTPError", "aave-v3_dailyRevenue": "HTTPError",
+                            "uni-child_dailyFees": "empty series", "uni-child_dailyRevenue": "empty series"}
     kept = json.loads((tmp_path / "d" / "protocols.json").read_text())
-    assert [p["slug"] for p in kept] == ["aave-v3", "uniswap-v3"] and "mcap" not in kept[0]   # today's value: dropped
+    assert [p["slug"] for p in kept] == ["aave-v3", "uni-child", "uniswap-v3"] and "mcap" not in kept[0]
