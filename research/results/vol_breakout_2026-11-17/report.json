@@ -1,0 +1,46 @@
+{
+ "F0S0": {
+  "money_made_usdt_fixed_150": -2038.265395071868,
+  "first_day_money_at_or_below_0": "2024-01-08",
+  "lowest_money_usdt": -1816.9237710925531,
+  "mean_trade_return": -0.012978448870244304,
+  "compounding_approximation": {
+   "final_money": 50.31578022315416,
+   "total_return": -0.9664561465178972,
+   "max_drawdown": 0.9665583595469097
+  }
+ },
+ "F1S0": {
+  "money_made_usdt_fixed_150": -1398.1191207255772,
+  "first_day_money_at_or_below_0": null,
+  "lowest_money_usdt": 47.229162797779516,
+  "mean_trade_return": -0.01244431794148266,
+  "compounding_approximation": {
+   "final_money": 263.6850113090529,
+   "total_return": -0.8242099924606314,
+   "max_drawdown": 0.8810960001886609
+  }
+ },
+ "F0S1": {
+  "money_made_usdt_fixed_150": -2473.9798968238956,
+  "first_day_money_at_or_below_0": "2025-05-08",
+  "lowest_money_usdt": -962.7954478305746,
+  "mean_trade_return": -0.0157528169170576,
+  "compounding_approximation": {
+   "final_money": 115.94142218473316,
+   "total_return": -0.9227057185435112,
+   "max_drawdown": 0.9228197718570973
+  }
+ },
+ "F1S1": {
+  "money_made_usdt_fixed_150": -1308.2827619994282,
+  "first_day_money_at_or_below_0": null,
+  "lowest_money_usdt": 136.85325955868223,
+  "mean_trade_return": -0.011644706381837367,
+  "compounding_approximation": {
+   "final_money": 285.0235956207841,
+   "total_return": -0.8099842695861439,
+   "max_drawdown": 0.871121224062533
+  }
+ }
+}

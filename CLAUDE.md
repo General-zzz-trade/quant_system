@@ -109,6 +109,14 @@
       (`research/results/overlay_signal_2026-11-17/`). The year-by-year choice made Sharpe 0.36, against 0.78 for the
       frozen spec, and lost at double costs, so the frozen spec stays.
     - In both, results swing with the path: a cost change alone moves the latch and stop timing.
+  - The panel model as a filter on a channel breakout (owner 2026-11-17 "跑回测验证", `lab/vol_breakout.py`): 20-day
+    breakout, 10-day/14-day exits, the 8 % stop with pause_then_reset, top-100 perps, 10 slots of 150 USDT at 2x;
+    the filter (top fifth by trend_14) and predicted-volatility sizing, 2x2. Failed 2026-11-18
+    (`research/results/vol_breakout_2026-11-17/`): accepted breakouts beat rejected ones by 1.4 points a trade, Welch t
+    0.46 < 2; sizing did not help; every configuration lost money (fixed 150 USDT a trade: -1308 to -2474 USDT), the
+    shorts most. Not to be re-tried with other rules on the development window. Its account sum let the losses of
+    hundreds of contracts pass the capital (money below zero in two configurations): with far fewer slots than
+    contracts, replay by slot or let the stake shrink with the account.
 - **Research discipline in code:**
   - `research/trials.jsonl` (`lab/trials.py`) records every configuration evaluated on real
     data; gates use the deflated Sharpe over the whole family. The directional family holds 83 trials.
@@ -128,8 +136,7 @@
     direction. Its models are frozen (`forward_spec.json`) and judged at 6 monthly looks, 2027-01-01 to 2027-06-01
     (decision 2027-06-01; `research/protocols/2026-11-17-panel-forward.md`); the look runner is still to be written.
     A model that holds is only a component: no strategy uses it yet.
-  - The volatility-expansion breakout study (panel filter, predicted-volatility sizing) is pre-registered
-    (`research/results/vol_breakout_2026-11-17/README.md`) and waits for the owner's confirmation before any code.
+  - Its first use, the volatility-expansion breakout study, failed 2026-11-18 (see Closed lines).
 - **Venue:** Binance USDT-margined perpetuals, **BTCUSDT and ETHUSDT only** again since 2026-11-17 (owner: "目前如何去改成做
   BTC和ETH，不再全市场这样做"; the whole-market scope of 2026-11-16 is reverted, in the lab too (`lab.LIVE_BTC_ETH`);
   delivery and USDC-margined contracts are not used). Mainnet refuses to start with a spec listing any other symbol (`MAINNET_SYMBOLS` in `trading/domain/strategy/spec.py`,
