@@ -1,0 +1,102 @@
+{
+ "code_commit": "76daca88979cfefe731bd4397aef0cdb3652dd5a",
+ "holdout": {
+  "rule": {
+   "days": 726,
+   "total_return": 0.193227034133735,
+   "cagr": 0.09288106241895888,
+   "sharpe": 0.751442408219267,
+   "max_drawdown": 0.1385299206471884,
+   "worst_month": -0.07358776531725697,
+   "worst_month_label": "2026-03",
+   "longest_losing_days": 5
+  },
+  "hold": {
+   "days": 726,
+   "total_return": 0.316337615664104,
+   "cagr": 0.14818661945112455,
+   "sharpe": 0.8340628915516349,
+   "max_drawdown": 0.1924650147476984,
+   "worst_month": -0.09294966319622588,
+   "worst_month_label": "2026-03",
+   "longest_losing_days": 5
+  }
+ },
+ "holdout_stress": {
+  "days": 726,
+  "total_return": 0.08208242714043101,
+  "cagr": 0.04045799860000576,
+  "sharpe": 0.38582183928483926,
+  "max_drawdown": 0.1277192623013892,
+  "worst_month": -0.07785791868730008,
+  "worst_month_label": "2026-03",
+  "longest_losing_days": 5
+ },
+ "long_check_spy_gld": {
+  "rule": {
+   "days": 4017,
+   "total_return": 0.2675226667048958,
+   "cagr": 0.021774246480258386,
+   "sharpe": 0.26257787212834255,
+   "max_drawdown": 0.23753867957472152,
+   "worst_month": -0.06825827301402787,
+   "worst_month_label": "2013-06",
+   "longest_losing_days": 5
+  },
+  "hold": {
+   "days": 4017,
+   "total_return": 0.22009314268873204,
+   "cagr": 0.018239633954612255,
+   "sharpe": 0.1982655137227913,
+   "max_drawdown": 0.38063566214536637,
+   "worst_month": -0.16721518884905207,
+   "worst_month_label": "2008-10",
+   "longest_losing_days": 5
+  }
+ },
+ "long_check_nasdaq_composite": {
+  "rule": {
+   "days": 16355,
+   "total_return": 17.971068962423075,
+   "cagr": 0.06788282530301104,
+   "sharpe": 0.5598076275236751,
+   "max_drawdown": 0.5782412227196456,
+   "worst_month": -0.23817216135763264,
+   "worst_month_label": "1987-10",
+   "longest_losing_days": 5
+  },
+  "hold": {
+   "days": 16355,
+   "total_return": 19.016939499645453,
+   "cagr": 0.06916252210613738,
+   "sharpe": 0.4243906013569185,
+   "max_drawdown": 0.8072890244916034,
+   "worst_month": -0.2902134404186043,
+   "worst_month_label": "1987-10",
+   "longest_losing_days": 5
+  }
+ },
+ "report_only": {
+  "weights_holdout": {
+   "SPY": {
+    "mean": 0.935,
+    "share_of_days_below_min_notional": 0.0
+   },
+   "QQQ": {
+    "mean": 0.798,
+    "share_of_days_below_min_notional": 0.0
+   },
+   "GLD": {
+    "mean": 0.754,
+    "share_of_days_below_min_notional": 0.0
+   }
+  },
+  "cagr_gap_holdout": -0.055305557032165664
+ },
+ "checks": {
+  "holdout_sharpe_and_drawdown": false,
+  "holdout_stress_return_above_0": true,
+  "long_checks_sharpe_and_drawdown": true
+ },
+ "passes": false
+}
