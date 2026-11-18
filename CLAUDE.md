@@ -128,6 +128,10 @@
   - 2021-01-10..2025-11-16 is development data and has been used heavily.
   - 2025-11-16..2026-11-12 has been viewed several times and must not be used for any selection.
   - The next final test is forward data after 2026-11-13.
+  - US-stock perpetuals (owner 2026-11-18): their whole history (listed 2025-12..2026-07, data to 2026-11-12) lies in
+    the viewed window above, but no US-stock strategy was ever selected on it, so for that asset class only it is
+    development data: about the first two thirds for selection, the last three months a holdout opened once for
+    survivors, forward data after 2026-11-13 the real test. The crypto rule above is unchanged.
 - **Research scope (owner 2026-11-17, evening):** "我要求不只做BTC和ETH，全市场的永续合约USDT都可以做": research may use every
   USDT perpetual (the whole-market panel study). The mainnet limit below stays until a strategy passes and the owner
   approves the runtime change (dynamic universe; specs list at most 10 symbols today).

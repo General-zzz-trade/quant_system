@@ -347,6 +347,8 @@ OTHER_MODULES = {
                           "day through research/results/panel_2026-11-17/run.py's build_panel (lab.panel_study's "
                           "features, checked here) over a feed cut at that day; no feature of its own "
                           "(test_daily_predict)"),
+    "lab.us_weekend": ("the weekend gap of the US-stock perpetuals: an event decides on hourly closes up to its decision "
+                       "time and fills at the next bar's open; the later prices only settle it (test_us_weekend)"),
     "lab.us_equity": ("daily replays of US stocks and ETFs at the perpetuals' costs through the shared broker; no "
                       "feature of its own (a decision fills at the next day's open; later prices change nothing "
                       "before: test_us_equity)"),
