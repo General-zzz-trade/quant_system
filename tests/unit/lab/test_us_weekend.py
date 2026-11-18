@@ -112,6 +112,15 @@ def test_doubled_costs_and_funding_cost_more_and_a_long_pays_the_funding():
     assert wk.replay(bars, FUNDING, down, rules=RULES) == pytest.approx(-0.02 - 0.0016 - 0.001, abs=0.0005)
 
 
+def test_an_entry_that_opens_beyond_the_decision_close_still_fills():
+    """The broker refuses a fill above its 1x exposure cap: a target of a full 1 was rejected whenever the next open
+    moved the notional over it, keeping only some entries (a biased sample). The fade holds 0.9, as the lab's ideas
+    hold 0.95."""
+    bars = _weekend_bars(105.0, 103.0)                                  # opens above the 104 close, then falls
+    e = wk.event(bars, FUNDING, date(2026, 7, 10), date(2026, 7, 13), exit_rule="open+1h")
+    assert wk.replay(bars, FUNDING, e, rules=RULES) == pytest.approx(2 / 105 - 0.0016 + 0.001, abs=0.0005)
+
+
 def test_a_trade_needs_a_move_of_at_least_the_threshold():
     assert wk.trades_at({"move": 0.025}, threshold=0.02) and not wk.trades_at({"move": 0.015}, threshold=0.02)
     assert wk.trades_at({"move": -0.03}, threshold=0.03) and not wk.trades_at({"move": 0.0}, threshold=0.0)

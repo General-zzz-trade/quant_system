@@ -33,6 +33,9 @@ H = 3_600_000
 DAY = 24 * H
 NEW_YORK = ZoneInfo("America/New_York")
 EXIT_RULES = ("open+1h", "close")
+# The fade's target: under the broker's 1x exposure cap, which refuses a fill whose notional exceeds it (a full 1
+# was refused whenever the next open moved the notional over it); the lab's ideas hold 0.95 for the same reason.
+EXPOSURE = 0.9
 
 
 def _ms(day: date, at: time) -> int:
@@ -106,8 +109,8 @@ def replay(bars: pd.DataFrame, funding: pd.Series, e: dict, *, rules: SymbolRule
     series = [bar_from_kline({"start": int(t), "open": str(r.open), "high": str(r.high), "low": str(r.low),
                               "close": str(r.close), "volume": str(r.volume)})
               for t, r in zip(window.index, window.itertuples())]
-    targets = pd.DataFrame({"available_at": [e["decision"], e["exit"]], "target": [fade_side(e["move"]), 0.0],
-                            "ready": [True, True]})
+    targets = pd.DataFrame({"available_at": [e["decision"], e["exit"]],
+                            "target": [fade_side(e["move"]) * EXPOSURE, 0.0], "ready": [True, True]})
     settled = {int(t) // H * H: (D(repr(float(rate) * funding_multiplier)),)
                for t, rate in funding.items() if lo <= t <= hi}
     result = simulate("event", series, targets, settled, StrategySpec(execution="market"), start_ms=lo, end_ms=hi + H,
@@ -132,5 +135,5 @@ def median_daily_quote(bars: pd.DataFrame, at: int, days: int = 30) -> float:
     return float(window["quote_volume"].groupby(window.index // DAY).sum().median())
 
 
-__all__ = ["D", "EXIT_RULES", "H", "SymbolRules", "breaks", "event", "fade_side", "funding_between",
+__all__ = ["D", "EXIT_RULES", "EXPOSURE", "H", "SymbolRules", "breaks", "event", "fade_side", "funding_between",
            "median_daily_quote", "replay", "session", "times", "trades_at", "tracks"]
