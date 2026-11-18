@@ -32,6 +32,19 @@ def test_a_break_is_three_or_more_calendar_days_between_trading_days():
     assert wk.breaks(days) == [(date(2026, 7, 2), date(2026, 7, 6)), (date(2026, 7, 10), date(2026, 7, 13))]
 
 
+def test_an_overnight_is_two_trading_days_one_calendar_day_apart():
+    days = [date(2026, 7, 8), date(2026, 7, 9), date(2026, 7, 10), date(2026, 7, 13), date(2026, 7, 14),
+            date(2026, 7, 16)]
+    assert wk.overnights(days) == [(date(2026, 7, 8), date(2026, 7, 9)), (date(2026, 7, 9), date(2026, 7, 10)),
+                                   (date(2026, 7, 13), date(2026, 7, 14))]   # the weekend and the day off are not
+
+
+def test_the_times_of_an_overnight():
+    t = wk.times(date(2026, 7, 8), date(2026, 7, 9), exit_rule="close")
+    assert (t["reference"], t["decision"], t["exit"]) == (utc("2026-07-08 20:00"), utc("2026-07-09 13:00"),
+                                                         utc("2026-07-09 20:00"))
+
+
 def _hourly(start, end, price=lambda t: 100.0):
     times = np.arange(utc(start), utc(end), H)
     close = np.array([price(t) for t in times])

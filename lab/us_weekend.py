@@ -53,6 +53,13 @@ def breaks(days: list[date]) -> list[tuple[date, date]]:
     return [(a, b) for a, b in zip(days, days[1:]) if (b - a).days >= 3]
 
 
+def overnights(days: list[date]) -> list[tuple[date, date]]:
+    """Consecutive trading days one calendar day apart: the weekday nights (owner 2026-11-18, "执行": the overnight
+    study after the weekend one). An event on them is computed as a weekend's."""
+    days = sorted(days)
+    return [(a, b) for a, b in zip(days, days[1:]) if (b - a).days == 1]
+
+
 def times(d0: date, d1: date, *, exit_rule: str) -> dict[str, int]:
     """The event's hourly closes (UTC ms): reference, decision and exit."""
     if exit_rule not in EXIT_RULES:
@@ -136,4 +143,4 @@ def median_daily_quote(bars: pd.DataFrame, at: int, days: int = 30) -> float:
 
 
 __all__ = ["D", "EXIT_RULES", "EXPOSURE", "H", "SymbolRules", "breaks", "event", "fade_side", "funding_between",
-           "median_daily_quote", "replay", "session", "times", "trades_at", "tracks"]
+           "median_daily_quote", "overnights", "replay", "session", "times", "trades_at", "tracks"]
