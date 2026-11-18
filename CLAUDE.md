@@ -137,6 +137,13 @@
     (decision 2027-06-01; `research/protocols/2026-11-17-panel-forward.md`); the look runner is still to be written.
     A model that holds is only a component: no strategy uses it yet.
   - Its first use, the volatility-expansion breakout study, failed 2026-11-18 (see Closed lines).
+  - Daily BTC/ETH prediction report (owner 2026-11-18: "目前做改成做预测机器", "我负责做下单",
+    "先做BTC和ETH，直接就在此对话推送"): `lab/daily_predict.py` runs the frozen models on the newest closed UTC day
+    over a rolling public-data feed (`data/downloads/perps_feed.py`, `/root/lab_cache/prediction_feed/`) and posts
+    trend probability, predicted volatility and a sizing rule (stop 2.5 predicted daily sd, a fixed risk share, at
+    most 2x) in this conversation each morning. The owner places any order; the system sends none and reads no key. It predicts no
+    direction. It reads data after 2026-11-13 for predictions only (no outcome, no tuning); the models are judged
+    only at the registered looks. It refuses a day whose data is not whole, or if the frozen code or models changed.
 - **Venue:** Binance USDT-margined perpetuals, **BTCUSDT and ETHUSDT only** again since 2026-11-17 (owner: "目前如何去改成做
   BTC和ETH，不再全市场这样做"; the whole-market scope of 2026-11-16 is reverted, in the lab too (`lab.LIVE_BTC_ETH`);
   delivery and USDC-margined contracts are not used). Mainnet refuses to start with a spec listing any other symbol (`MAINNET_SYMBOLS` in `trading/domain/strategy/spec.py`,
@@ -193,6 +200,8 @@ python3 -m scripts.live_fills --state-db <db> --history <dir> --events <events.j
 python -m lab.um_monthly plan|screen|final --snapshot <dir> --run research/lab/runs/<date>   # monthly re-selection
 python -m lab.um_forward download|look --frozen <file> --study <name> --end <date> ...   # a champion's weekly look
 python3 -m scripts.draft_strategy_spec --run <run dir> --snapshot <dir>   # a champion's spec draft (passed false)
+python -m data.downloads.perps_feed update --feed /root/lab_cache/prediction_feed/feed   # public data, no key
+python -m lab.daily_predict --feed /root/lab_cache/prediction_feed/feed --log /root/lab_cache/prediction_feed/predictions.jsonl   # the daily BTC/ETH report (updates the feed first)
 python -m trading.infrastructure.state_dir --state-dir <dir> init     # once, before execution mode (RISK_SCOPE set)
 python -m trading.infrastructure.state_dir --state-dir <dir> restore --snapshot <file> --reason "..."  # lost DB only
 python -m trading.infrastructure.state_backup --state-dir <dir> --backup-dir <dir>   # what state-backup@ runs hourly

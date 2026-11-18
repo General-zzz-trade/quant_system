@@ -86,13 +86,13 @@ def _ms(day: date) -> int:
 
 
 def _closed_hourly(path: str, symbol: str, start_ms: int, end_ms: int, row, *, fetch: Fetch,
-                   now_ms: int | None) -> list[tuple]:
+                   now_ms: int | None, limit: int = 1500) -> list[tuple]:
     """Paginate an hourly kline-shaped endpoint; keep closed bars with open_time in [start_ms, end_ms)."""
     now_ms = int(time.time() * 1000) if now_ms is None else now_ms
     rows: dict[int, tuple] = {}
     cursor = start_ms
     while cursor < end_ms:
-        query = urllib.parse.urlencode({"symbol": symbol, "interval": "1h", "limit": 1500,
+        query = urllib.parse.urlencode({"symbol": symbol, "interval": "1h", "limit": limit,
                                         "startTime": cursor, "endTime": end_ms - 1})
         batch = json.loads(fetch(f"{FAPI}{path}?{query}"))
         if not batch:
@@ -112,11 +112,12 @@ def _closed_hourly(path: str, symbol: str, start_ms: int, end_ms: int, row, *, f
 
 
 def fetch_klines(symbol: str, start_ms: int, end_ms: int, *, fetch: Fetch = http_get,
-                 now_ms: int | None = None) -> list[tuple]:
-    """Closed 1h klines with open_time in [start_ms, end_ms)."""
+                 now_ms: int | None = None, limit: int = 1500) -> list[tuple]:
+    """Closed 1h klines with open_time in [start_ms, end_ms); ``limit`` bars a page (Binance weighs a request by
+    it: below 100 costs 1, above 1000 costs 10)."""
     return _closed_hourly("/fapi/v1/klines", symbol, start_ms, end_ms,
                           lambda t, k: (t, k[1], k[2], k[3], k[4], k[5], k[7], int(k[8]), k[9], k[10]),
-                          fetch=fetch, now_ms=now_ms)
+                          fetch=fetch, now_ms=now_ms, limit=limit)
 
 
 def fetch_premium_klines(symbol: str, start_ms: int, end_ms: int, *, fetch: Fetch = http_get,
