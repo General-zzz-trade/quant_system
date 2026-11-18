@@ -1,0 +1,169 @@
+{
+ "code_commit": "33803f9f6bb4536bb2cfec29b00ab1d489b83c9c",
+ "screen": {
+  "events_selection": 587,
+  "weekends_selection": 28,
+  "tickers": 52,
+  "configs": {
+   "fade1_open+1h": {
+    "base": {
+     "events": 422,
+     "weekends_traded": 27,
+     "mean_net": 0.010019986936285231,
+     "median_net": 0.002907585605006581,
+     "hit_rate": 0.5450236966824644,
+     "t_weekend": 1.1571504288557388,
+     "weekly_sharpe": 1.5765637013324123,
+     "mean_weekend": 0.005425454315962637
+    },
+    "stress": {
+     "events": 422,
+     "weekends_traded": 27,
+     "mean_net": 0.00841998693628523,
+     "median_net": 0.0013075856050065809,
+     "hit_rate": 0.518957345971564,
+     "t_weekend": 0.8158996177076439,
+     "weekly_sharpe": 1.1121387906180824,
+     "mean_weekend": 0.0038254543159626365
+    }
+   },
+   "fade1_close": {
+    "base": {
+     "events": 422,
+     "weekends_traded": 27,
+     "mean_net": 0.007577693289440213,
+     "median_net": 0.0028502865598018026,
+     "hit_rate": 0.5402843601895735,
+     "t_weekend": 1.3964758191970397,
+     "weekly_sharpe": 1.901836774698379,
+     "mean_weekend": 0.007995187018020487
+    },
+    "stress": {
+     "events": 422,
+     "weekends_traded": 27,
+     "mean_net": 0.006018771867639265,
+     "median_net": 0.0013516677106540026,
+     "hit_rate": 0.514218009478673,
+     "t_weekend": 1.1242055222984881,
+     "weekly_sharpe": 1.5317567231840625,
+     "mean_weekend": 0.006427993618488754
+    }
+   },
+   "fade2_open+1h": {
+    "base": {
+     "events": 277,
+     "weekends_traded": 26,
+     "mean_net": 0.013788999401882478,
+     "median_net": 0.004776195536663132,
+     "hit_rate": 0.5812274368231047,
+     "t_weekend": 1.2229984347850738,
+     "weekly_sharpe": 1.6654902392350441,
+     "mean_weekend": 0.006867495524365826
+    },
+    "stress": {
+     "events": 277,
+     "weekends_traded": 26,
+     "mean_net": 0.012188999401882474,
+     "median_net": 0.0031761955366631316,
+     "hit_rate": 0.5451263537906137,
+     "t_weekend": 0.9380623196156624,
+     "weekly_sharpe": 1.2785821081454758,
+     "mean_weekend": 0.0052674955243658264
+    }
+   },
+   "fade2_close": {
+    "base": {
+     "events": 277,
+     "weekends_traded": 26,
+     "mean_net": 0.011439314665364105,
+     "median_net": 0.004519434479848085,
+     "hit_rate": 0.5595667870036101,
+     "t_weekend": 1.090212039162711,
+     "weekly_sharpe": 1.485309662928064,
+     "mean_weekend": 0.008063640978275083
+    },
+    "stress": {
+     "events": 277,
+     "weekends_traded": 26,
+     "mean_net": 0.009884969611212479,
+     "median_net": 0.0029194344798480847,
+     "hit_rate": 0.5379061371841155,
+     "t_weekend": 0.8822439750527457,
+     "weekly_sharpe": 1.2026756618156202,
+     "mean_weekend": 0.006515475620789524
+    }
+   },
+   "fade3_open+1h": {
+    "base": {
+     "events": 187,
+     "weekends_traded": 22,
+     "mean_net": 0.013634793133506585,
+     "median_net": 0.0006346368715084885,
+     "hit_rate": 0.5187165775401069,
+     "t_weekend": 0.9939158291144152,
+     "weekly_sharpe": 1.3545619560577071,
+     "mean_weekend": 0.00830514045424066
+    },
+    "stress": {
+     "events": 187,
+     "weekends_traded": 22,
+     "mean_net": 0.012034793133506581,
+     "median_net": -0.0009653631284915116,
+     "hit_rate": 0.48663101604278075,
+     "t_weekend": 0.8024361864346742,
+     "weekly_sharpe": 1.0955082012637456,
+     "mean_weekend": 0.006705140454240661
+    }
+   },
+   "fade3_close": {
+    "base": {
+     "events": 187,
+     "weekends_traded": 22,
+     "mean_net": 0.01129734161755789,
+     "median_net": 0.0016954358213872491,
+     "hit_rate": 0.5240641711229946,
+     "t_weekend": 0.9630136424368289,
+     "weekly_sharpe": 1.3128478757764823,
+     "mean_weekend": 0.009243377200137286
+    },
+    "stress": {
+     "events": 187,
+     "weekends_traded": 22,
+     "mean_net": 0.009742917125579276,
+     "median_net": 9.543582138724907e-05,
+     "hit_rate": 0.5026737967914439,
+     "t_weekend": 0.8046210380147413,
+     "weekly_sharpe": 1.0984714718084447,
+     "mean_weekend": 0.007720502511919969
+    }
+   }
+  },
+  "chosen": "fade1_close",
+  "permutation_p": 0.0877912208779122,
+  "top_ticker": "LITE",
+  "mean_without_top_ticker": 0.006667020169558404,
+  "halves_mean_net": [
+   0.013119089023056271,
+   0.006531852404504226
+  ],
+  "report_only": {
+   "corr_weekend_move_vs_stock_gap": 0.9501656115241746,
+   "events_for_corr": 587
+  },
+  "checks": {
+   "mean_net_above_0": true,
+   "t_at_least_2": false,
+   "permutation_p_at_most_0.05_over_6": false,
+   "stress_mean_above_0": true,
+   "at_least_100_events_15_weekends": true,
+   "without_top_ticker_above_0": true,
+   "both_halves_above_0": true
+  },
+  "survives": false
+ },
+ "final": {
+  "opened_holdout": false,
+  "reason": "no configuration passed the line"
+ },
+ "final_commit": "33803f9f6bb4536bb2cfec29b00ab1d489b83c9c"
+}

@@ -23,6 +23,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 sys.path.insert(0, str(ROOT))
 from lab import trials as registry  # noqa: E402
+from lab import um_lab  # noqa: E402
 from lab import us_weekend as wk  # noqa: E402
 
 PERPS = ROOT / "data_files" / "binance_usdt_perps_2020_2026-11-12"
@@ -30,7 +31,7 @@ STOCKS = ROOT / "data_files" / "us_equity_daily_2026-11-12"
 TRADFI = ROOT / "research" / "lab" / "runs" / "2026-11-17b" / "tradfi_contracts.json"
 START, SPLIT, END = date(2025, 12, 1), date(2026, 8, 13), date(2026, 11, 13)
 CONFIGS = [{"threshold": x, "exit": e} for x in (0.01, 0.02, 0.03) for e in wk.EXIT_RULES]
-BASE_BP, STRESS_BP, MIN_QUOTE, DRAWS = 8, 16, 5e6, 10_000
+MIN_QUOTE, DRAWS = 5e6, 10_000      # costs: the shared broker's 5 + 3 bp a side; stress: times 2, funding times 2
 FAMILY, STUDY = "us_weekend_2026-11-18", "us_weekend_2026-11-18"
 
 
@@ -55,6 +56,7 @@ def events(holdout: bool) -> list[dict]:
         stock = pd.read_csv(STOCKS / f"{t}_1d.csv")
         stock["day"] = pd.to_datetime(stock["date"]).dt.date
         stock = stock.set_index("day")
+        rules = um_lab.rules(f"{t}USDT", PERPS)
         for d0, d1 in wk.breaks(list(stock.index)):
             if d0 < START or not ((SPLIT <= d1 < END) if holdout else d1 < SPLIT):
                 continue
@@ -65,17 +67,20 @@ def events(holdout: bool) -> list[dict]:
                 if wk.median_daily_quote(bars, e["decision"]) < MIN_QUOTE:
                     continue
                 gap = float(stock.at[d1, "open"]) / float(stock.at[d0, "close"]) - 1.0
-                out.append({**e, "ticker": t, "exit_rule": rule, "stock_gap": gap})
+                base = wk.replay(bars, funding, e, rules=rules)
+                stress = wk.replay(bars, funding, e, rules=rules, cost_multiplier=2, funding_multiplier=2.0)
+                out.append({**e, "ticker": t, "exit_rule": rule, "stock_gap": gap, "net_base": base,
+                            "net_stress": stress})
     return out
 
 
-def trades(evts: list[dict], c: dict, *, cost_bp: float, funding_multiplier: float = 1.0) -> pd.DataFrame:
+def trades(evts: list[dict], c: dict, *, stress: bool = False) -> pd.DataFrame:
+    """The configuration's trades: the events of its exit rule with a move of at least its threshold, at the shared
+    broker's result (base or stress costs); an event the broker could not fill is not a trade."""
     rows = []
     for e in evts:
-        if e["exit_rule"] != c["exit"]:
-            continue
-        r = wk.net_return(e, threshold=c["threshold"], cost_bp=cost_bp, funding_multiplier=funding_multiplier)
-        if r is not None:
+        r = e["net_stress"] if stress else e["net_base"]
+        if e["exit_rule"] == c["exit"] and wk.trades_at(e, threshold=c["threshold"]) and r is not None:
             rows.append({"weekend": e["d1"], "ticker": e["ticker"], "net": r})
     return pd.DataFrame(rows, columns=["weekend", "ticker", "net"])
 
@@ -109,11 +114,10 @@ def commit() -> str:
 def screen() -> dict:
     evts = events(holdout=False)
     weekends = sorted({e["d1"] for e in evts})
-    rows = {label(c): {"base": stats(trades(evts, c, cost_bp=BASE_BP), weekends),
-                       "stress": stats(trades(evts, c, cost_bp=STRESS_BP, funding_multiplier=2.0), weekends)}
-            for c in CONFIGS}
+    rows = {label(c): {"base": stats(trades(evts, c), weekends),
+                       "stress": stats(trades(evts, c, stress=True), weekends)} for c in CONFIGS}
     best = max(CONFIGS, key=lambda c: rows[label(c)]["base"]["t_weekend"] or -9.0)
-    tr = trades(evts, best, cost_bp=BASE_BP)
+    tr = trades(evts, best)
     s, st = rows[label(best)]["base"], rows[label(best)]["stress"]
     top = tr.groupby("ticker")["net"].sum().idxmax() if not tr.empty else None
     without = tr[tr["ticker"] != top]["net"].mean() if not tr.empty else float("nan")
@@ -127,11 +131,12 @@ def screen() -> dict:
               "at_least_100_events_15_weekends": s["events"] >= 100 and s["weekends_traded"] >= 15,
               "without_top_ticker_above_0": bool(without > 0), "both_halves_above_0": bool(min(halves) > 0)}
     moves = pd.DataFrame([{"move": e["move"], "gap": e["stock_gap"]} for e in evts if e["exit_rule"] == "close"])
+    done = {(r["study"], r["trial"]) for r in registry.load(ROOT / "research/trials.jsonl", FAMILY)}
     registry.record([{"family": FAMILY, "study": STUDY, "trial": label(c), "config": c,
                       "window": [START.isoformat(), SPLIT.isoformat()],
                       "sharpe": rows[label(c)]["base"]["weekly_sharpe"],
                       "count": 1, "note": "selection weekends, base costs; weekly Sharpe; holdout not read"}
-                     for c in CONFIGS], path=ROOT / "research/trials.jsonl")
+                     for c in CONFIGS if (STUDY, label(c)) not in done], path=ROOT / "research/trials.jsonl")
     return {"events_selection": len({(e["ticker"], e["d1"]) for e in evts}), "weekends_selection": len(weekends),
             "tickers": len({e["ticker"] for e in evts}), "configs": rows, "chosen": label(best),
             "permutation_p": p, "top_ticker": top, "mean_without_top_ticker": float(without),
@@ -147,10 +152,10 @@ def final(screened: dict) -> dict:
     c = next(c for c in CONFIGS if label(c) == screened["chosen"])
     evts = events(holdout=True)
     weekends = sorted({e["d1"] for e in evts})
-    s = stats(trades(evts, c, cost_bp=BASE_BP), weekends)
+    s = stats(trades(evts, c), weekends)
     checks = {"holdout_mean_above_0": (s["mean_net"] or 0) > 0, "holdout_t_at_least_1": (s["t_weekend"] or 0) >= 1.0}
     return {"opened_holdout": True, "choice": label(c), "holdout": s,
-            "holdout_stress": stats(trades(evts, c, cost_bp=STRESS_BP, funding_multiplier=2.0), weekends),
+            "holdout_stress": stats(trades(evts, c, stress=True), weekends),
             "checks": checks, "passes": all(checks.values())}
 
 

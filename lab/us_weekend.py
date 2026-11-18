@@ -11,17 +11,23 @@ pull it back. One event per trading-calendar break of three calendar days or mor
   is that close over the reference; a move of at least the threshold is faded (a market order at the next bar's open);
 - ``exit``: the first hourly close at least an hour after the open ("open+1h"), or the hourly close at that day's
   16:00 ("close"); the position is closed at the next bar's open;
-- the funding settled while the position is held counts (a long pays a positive rate, a short receives it); fees and
-  slippage are a fixed cost per side.
+- the trade goes through the shared broker (``replay``): its fees and slippage, the funding settled while the
+  position is held (a long pays a positive rate, a short receives it).
 
 An event uses only bars closed by its decision to decide; the prices after it only settle the trade.
 """
 from __future__ import annotations
 
 from datetime import date, datetime, time, timezone
+from decimal import Decimal as D
 from zoneinfo import ZoneInfo
 
 import pandas as pd
+
+from lab.simulate import SymbolRules, simulate
+from lab.strategy import StrategySpec
+from lab.um_lab import _fill
+from trading.domain.bars import bar_from_kline
 
 H = 3_600_000
 DAY = 24 * H
@@ -78,13 +84,39 @@ def event(bars: pd.DataFrame, funding: pd.Series, d0: date, d1: date, *, exit_ru
             "funding": funding_between(funding, t["decision"], t["exit"])}
 
 
-def net_return(e: dict, *, threshold: float, cost_bp: float, funding_multiplier: float = 1.0) -> float | None:
-    """The fade's return per unit of notional after costs and funding; None below the threshold (no trade)."""
-    if abs(e["move"]) < threshold or e["move"] == 0:
+def fade_side(move: float) -> float:
+    """Short after a rise, long after a fall."""
+    return -1.0 if move > 0 else 1.0
+
+
+def trades_at(e: dict, *, threshold: float) -> bool:
+    """An event is traded when its move is at least the threshold (and not zero)."""
+    return e["move"] != 0 and abs(e["move"]) >= threshold
+
+
+def replay(bars: pd.DataFrame, funding: pd.Series, e: dict, *, rules: SymbolRules, cost_multiplier: int = 1,
+           funding_multiplier: float = 1.0, capital: str = "50") -> float | None:
+    """The fade of one event through the shared broker (``lab.simulate``; the S12 rule: no research fill model of its
+    own): the target is decided at the decision's close and filled at the next bar's open, taken back to 0 at the
+    exit's close and filled at the next bar's open. Fees and slippage are the research broker's (5 and 3 basis points
+    a side, times ``cost_multiplier``); funding is the rates settled while the position is held (times
+    ``funding_multiplier``). Returns the result per unit of the entry's notional; None when nothing filled."""
+    lo, hi = e["decision"] - H, e["exit"] + H
+    window = bars[(bars.index >= lo) & (bars.index <= hi)]
+    series = [bar_from_kline({"start": int(t), "open": str(r.open), "high": str(r.high), "low": str(r.low),
+                              "close": str(r.close), "volume": str(r.volume)})
+              for t, r in zip(window.index, window.itertuples())]
+    targets = pd.DataFrame({"available_at": [e["decision"], e["exit"]], "target": [fade_side(e["move"]), 0.0],
+                            "ready": [True, True]})
+    settled = {int(t) // H * H: (D(repr(float(rate) * funding_multiplier)),)
+               for t, rate in funding.items() if lo <= t <= hi}
+    result = simulate("event", series, targets, settled, StrategySpec(execution="market"), start_ms=lo, end_ms=hi + H,
+                      rules=rules, cost_multiplier=cost_multiplier, starting_balance=capital)
+    if not result.fills:
         return None
-    side = -1.0 if e["move"] > 0 else 1.0
-    gross = side * (e["exit_price"] / e["entry"] - 1.0)
-    return gross - 2 * cost_bp / 1e4 - side * e["funding"] * funding_multiplier
+    first = _fill(result.fills[0])
+    notional = float(D(first["qty"]) * D(first["price"]))
+    return (float(result.curve["equity"].iloc[-1]) - float(capital)) / notional
 
 
 def tracks(perp_price: float, stock_close: float, tolerance: float = 0.10) -> bool:
@@ -100,5 +132,5 @@ def median_daily_quote(bars: pd.DataFrame, at: int, days: int = 30) -> float:
     return float(window["quote_volume"].groupby(window.index // DAY).sum().median())
 
 
-__all__ = ["EXIT_RULES", "H", "breaks", "event", "funding_between", "median_daily_quote", "net_return", "session",
-           "times", "tracks"]
+__all__ = ["D", "EXIT_RULES", "H", "SymbolRules", "breaks", "event", "fade_side", "funding_between",
+           "median_daily_quote", "replay", "session", "times", "trades_at", "tracks"]

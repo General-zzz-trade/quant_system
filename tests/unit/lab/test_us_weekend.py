@@ -73,13 +73,48 @@ def test_the_funding_inside_the_holding_is_counted_once_each():
     assert wk.funding_between(funding, utc("2026-07-12 16:00"), utc("2026-07-13 13:00")) == pytest.approx(0.001)
 
 
-def test_the_net_return_fades_the_move_and_pays_costs_and_funding():
-    e = {"move": 0.04, "entry": 100.0, "exit_price": 98.0, "funding": 0.001}
-    # fade: short; the price fell 2 %; costs 2 x (5 + 3) bp; a short receives a positive funding rate
-    assert wk.net_return(e, threshold=0.02, cost_bp=8) == pytest.approx(0.02 - 0.0016 + 0.001)
-    assert wk.net_return(e, threshold=0.05, cost_bp=8) is None             # below the threshold: no trade
-    up = {"move": -0.03, "entry": 100.0, "exit_price": 101.0, "funding": 0.001}
-    assert wk.net_return(up, threshold=0.02, cost_bp=8) == pytest.approx(0.01 - 0.0016 - 0.001)   # long pays
+def _weekend_bars(entry_open, exit_open):
+    """Friday 100, the weekend up to 104; on Monday the entry bar opens at entry_open, the exit bar at exit_open."""
+    def price(t):
+        if t < utc("2026-07-10 20:00"):
+            return 100.0
+        if t < utc("2026-07-13 13:00"):
+            return 104.0
+        return entry_open if t < utc("2026-07-13 15:00") else exit_open
+    bars = _hourly("2026-06-01", "2026-07-15", price)
+    bars["volume"] = 1e6
+    return bars
+
+
+RULES = wk.SymbolRules(wk.D("0.01"), wk.D("0.01"), wk.D("5"))
+FUNDING = pd.Series({utc("2026-07-13 14:00"): 0.001})
+
+
+def test_the_fade_goes_through_the_shared_broker_with_its_costs_and_the_funding():
+    bars = _weekend_bars(100.0, 98.0)
+    e = wk.event(bars, FUNDING, date(2026, 7, 10), date(2026, 7, 13), exit_rule="open+1h")
+    assert wk.fade_side(e["move"]) == -1.0                              # up 4 %: short
+    r = wk.replay(bars, FUNDING, e, rules=RULES)
+    # short at 100, cover at 98: 2 %; fees 2 x 5 bp and slippage 2 x 3 bp; a short receives the positive rate
+    assert r == pytest.approx(0.02 - 0.0016 + 0.001, abs=0.0005)
+
+
+def test_doubled_costs_and_funding_cost_more_and_a_long_pays_the_funding():
+    bars = _weekend_bars(100.0, 98.0)
+    e = wk.event(bars, FUNDING, date(2026, 7, 10), date(2026, 7, 13), exit_rule="open+1h")
+    base = wk.replay(bars, FUNDING, e, rules=RULES)
+    worse = wk.replay(bars, FUNDING, e, rules=RULES, cost_multiplier=2)
+    assert worse == pytest.approx(base - 0.0016, abs=0.0003)
+    more_funding = wk.replay(bars, FUNDING, e, rules=RULES, funding_multiplier=2.0)
+    assert more_funding == pytest.approx(base + 0.001, abs=0.0002)     # the short receives twice the rate
+    down = {**e, "move": -0.04}                                         # a fall is faded with a long
+    assert wk.fade_side(down["move"]) == 1.0
+    assert wk.replay(bars, FUNDING, down, rules=RULES) == pytest.approx(-0.02 - 0.0016 - 0.001, abs=0.0005)
+
+
+def test_a_trade_needs_a_move_of_at_least_the_threshold():
+    assert wk.trades_at({"move": 0.025}, threshold=0.02) and not wk.trades_at({"move": 0.015}, threshold=0.02)
+    assert wk.trades_at({"move": -0.03}, threshold=0.03) and not wk.trades_at({"move": 0.0}, threshold=0.0)
 
 
 def test_a_perpetual_that_does_not_track_its_stock_is_no_event():
