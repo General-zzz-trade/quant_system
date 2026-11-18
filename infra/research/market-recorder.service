@@ -1,0 +1,26 @@
+# Research data recorder (owner 2026-11-18): liquidations and best bid/ask snapshots, public Binance endpoints only.
+# Not part of the trading install (infra/sync_systemd.sh copies infra/systemd/ only). Install and update: README.md.
+[Unit]
+Description=Market data recorder (research): liquidations and best bid/ask, public endpoints, no key
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/qs-services
+ExecStart=/usr/bin/python3 -m data.downloads.market_recorder --root /root/lab_cache/market_recorder
+# A research recorder, not a trading service: it restarts itself; the time it was down is written to gaps.csv.
+Restart=always
+RestartSec=30
+Nice=19
+CPUWeight=20
+IOSchedulingClass=idle
+MemoryMax=300M
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/root/lab_cache/market_recorder
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

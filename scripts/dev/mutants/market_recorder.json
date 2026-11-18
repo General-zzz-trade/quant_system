@@ -1,0 +1,110 @@
+[
+ [
+  "the old stream address",
+  "data/downloads/market_recorder.py",
+  "LIQUIDATIONS_URL = \"wss://fstream.binance.com/market/ws/!forceOrder@arr\"",
+  "LIQUIDATIONS_URL = \"wss://fstream.binance.com/ws/!forceOrder@arr\""
+ ],
+ [
+  "other events kept",
+  "data/downloads/market_recorder.py",
+  "if not isinstance(e, dict) or e.get(\"e\") != \"forceOrder\":",
+  "if not isinstance(e, dict):"
+ ],
+ [
+  "fill qty columns swapped",
+  "data/downloads/market_recorder.py",
+  "o[\"l\"], o[\"z\"]))",
+  "o[\"z\"], o[\"l\"]))"
+ ],
+ [
+  "disk guard off",
+  "data/downloads/market_recorder.py",
+  "        if self.free_gb() < MIN_FREE_GB:\n            return False",
+  "        if False:\n            return False"
+ ],
+ [
+  "earlier days never closed",
+  "data/downloads/market_recorder.py",
+  "            self.close_before(day)\n",
+  "            pass\n"
+ ],
+ [
+  "today closed too",
+  "data/downloads/market_recorder.py",
+  "            if path.name[:10] >= day:",
+  "            if path.name[:10] > day:"
+ ],
+ [
+  "closed day reopened",
+  "data/downloads/market_recorder.py",
+  "            if (self.dir / f\"{day}.csv.gz\").exists() and not path.exists():",
+  "            if False:"
+ ],
+ [
+  "manifest row count with header",
+  "data/downloads/market_recorder.py",
+  "\"rows\": max(raw.count(b\"\\n\") - 1, 0)",
+  "\"rows\": raw.count(b\"\\n\")"
+ ],
+ [
+  "header never written",
+  "data/downloads/market_recorder.py",
+  "                if new:\n                    writer.writerow(self.columns)",
+  "                if False:\n                    writer.writerow(self.columns)"
+ ],
+ [
+  "silence never reconnects",
+  "data/downloads/market_recorder.py",
+  "                    if clock() - last >= SILENT_S * 1000:",
+  "                    if False:"
+ ],
+ [
+  "silence gap from the reconnect",
+  "data/downloads/market_recorder.py",
+  "                        down_since, reason = last, f\"no liquidation",
+  "                        down_since, reason = clock(), f\"no liquidation"
+ ],
+ [
+  "no gap for a reconnect",
+  "data/downloads/market_recorder.py",
+  "        if connected - down_since > 1000:\n            gaps.add(",
+  "        if False:\n            gaps.add("
+ ],
+ [
+  "disconnect gap starts at the connect",
+  "data/downloads/market_recorder.py",
+  "            down_since, reason = clock(), f\"disconnected:",
+  "            down_since, reason = connected, f\"disconnected:"
+ ],
+ [
+  "failed connect reason lost",
+  "data/downloads/market_recorder.py",
+  "            reason = f\"connect failed: {type(exc).__name__}: {exc}\"",
+  "            pass"
+ ],
+ [
+  "snapshots off the boundary",
+  "data/downloads/market_recorder.py",
+  "        due = (clock() // (EVERY_S * 1000) + 1) * EVERY_S * 1000",
+  "        due = clock() + EVERY_S * 1000"
+ ],
+ [
+  "failed snapshot no gap",
+  "data/downloads/market_recorder.py",
+  "            gaps.add(\"book_ticker\", due, due, f\"snapshot failed:",
+  "            print(\"book_ticker\", due, due, f\"snapshot failed:"
+ ],
+ [
+  "downtime not recorded",
+  "data/downloads/market_recorder.py",
+  "    if before is not None:\n        gaps.add(",
+  "    if False:\n        gaps.add("
+ ],
+ [
+  "broken status read as alive",
+  "data/downloads/market_recorder.py",
+  "        except (OSError, ValueError, KeyError, TypeError):\n            return None",
+  "        except (OSError,):\n            return None"
+ ]
+]

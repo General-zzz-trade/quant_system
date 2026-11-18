@@ -165,6 +165,11 @@
     (2026-11-18), the first look a one-shot task on 2027-01-09.
     A model that holds is only a component: no strategy uses it yet.
   - Its first use, the volatility-expansion breakout study, failed 2026-11-18 (see Closed lines).
+  - Recorded data (owner 2026-11-18 "执行"): what data.binance.vision does not archive - liquidations (`forceOrder`,
+    stream `/market/ws/`; the old `/ws/` connects but sends nothing) and a 5-minute best bid/ask snapshot of every
+    USDT perpetual (the bookTicker archive stopped 2024-03-30) - by `data/downloads/market_recorder.py` (service
+    `market-recorder`, its own worktree `/root/qs-services`); spans not recorded are in `gaps.csv`. Forward data:
+    read only in a study registered before it looks. Depth, open interest, long/short and trades are archived.
   - Daily BTC/ETH prediction report (owner 2026-11-18: "目前做改成做预测机器", "我负责做下单",
     "先做BTC和ETH，直接就在此对话推送"): `lab/daily_predict.py` runs the frozen models on the newest closed UTC day
     over a rolling public-data feed (`data/downloads/perps_feed.py`, `/root/lab_cache/prediction_feed/`) and posts
@@ -232,6 +237,7 @@ python -m lab.portfolio_forward --spec <forward_spec.json> --end <date> --data <
 python -m lab.panel_forward --end <date> --data <monthly snapshot> --out <new dir>   # panel models' monthly look (reads public exchangeInfo)
 python3 -m scripts.draft_strategy_spec --run <run dir> --snapshot <dir>   # a champion's spec draft (passed false)
 python -m data.downloads.perps_feed update --feed /root/lab_cache/prediction_feed/feed   # public data, no key
+systemctl status market-recorder      # research recorder: liquidations + best bid/ask, /root/lab_cache/market_recorder (infra/research/README.md)
 python -m lab.daily_predict --feed /root/lab_cache/prediction_feed/feed --log /root/lab_cache/prediction_feed/predictions.jsonl   # the daily BTC/ETH report (updates the feed first)
 python -m trading.infrastructure.state_dir --state-dir <dir> init     # once, before execution mode (RISK_SCOPE set)
 python -m trading.infrastructure.state_dir --state-dir <dir> restore --snapshot <file> --reason "..."  # lost DB only
