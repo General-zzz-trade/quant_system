@@ -1,0 +1,17 @@
+{
+ "what": "exploration window only (2016-11-17..2021-11-16), written after explore.json: the chosen signal (surprise, 20 days) gross of costs from the open after the decision to the open 20 days later, raw and minus QQQ over the same days",
+ "events": 1417,
+ "raw": {
+  "weekly_mean_sd": 0.0762,
+  "mean": 0.0071,
+  "power_at_0.5pct": 0.12,
+  "weeks_needed": 1822
+ },
+ "hedged_by_qqq": {
+  "weekly_mean_sd": 0.0683,
+  "mean": -0.0027,
+  "power_at_0.5pct": 0.13,
+  "weeks_needed": 1465
+ },
+ "reading": "the raw drift is the market's: hedged, the mean is negative; the spread barely falls, so no redesign of this kind reaches 80 % power"
+}
