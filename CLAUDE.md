@@ -134,6 +134,10 @@
   - Power: a plan states the minimum detectable effect and the sample it needs; below 80 % power it is not run as a
     decision study but frozen and accumulated on forward data. Forward tests are judged at a preset sample size with
     a sequential test; a 4-week look is a sanity check only.
+  - Alpha check of every current strategy under these standards (owner 2026-11-18, diagnostic, nothing re-judged;
+    `research/results/alpha_check_2026-11-18/`): 0 of 63 show regression alpha (highest Newey-West t 1.64,
+    D2_taker_imbalance); the trend ideas (E3, A1, F1, A8) have beta about 1 to BTC vol-target hold. Power at a true
+    Sharpe of 0.5 is about 20 % on 5 years: the registered forward tests decide.
   - Focus until 2026-12-02: US earnings drift, a portfolio of weak signals, the calibration pilot; and closing the
     forward-test gaps (scheduled E3 looks, the panel models' look runner). New questions wait in a backlog.
 - **Research discipline in code:**

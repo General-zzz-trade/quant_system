@@ -1,0 +1,2739 @@
+{
+ "code_commit": "f9076c2e7ce4586bd5e5a93043c1682f121c8e2e",
+ "plan": "research/results/alpha_check_2026-11-18/plan.md",
+ "candidates_2026-11-14": {
+  "dir_ridge_7d": {
+   "walk_forward": {
+    "days": 991,
+    "total_return": 0.523481581880535,
+    "sharpe": 0.6808197286456995,
+    "max_drawdown": 0.282936349403738
+   },
+   "recorded_sharpe": 0.6808197286456995,
+   "regression_alpha": {
+    "alpha_annual": -0.10469684596707662,
+    "t_newey_west": -1.2029496606654955,
+    "lags": 6,
+    "days": 991,
+    "betas": {
+     "btc_hold": 0.15291312761183515,
+     "btc_vol_target": 0.5175142897128864
+    },
+    "passes": false
+   },
+   "portfolio_gain": {
+    "weights": {
+     "strategy": 0.6184897035031262,
+     "benchmark": 0.3815102964968739
+    },
+    "sharpe_with": 1.0596607403866296,
+    "sharpe_benchmark": 1.3485091186499027,
+    "passes": false
+   },
+   "family_deflated": {
+    "n_trials": 107,
+    "sharpe_std": 0.21603518529891846,
+    "probability": 0.5844327504464768,
+    "threshold": 0.9,
+    "passes": false
+   },
+   "power": {
+    "at_sharpe_0.5": 0.13064529435017422
+   },
+   "btc_hold": {
+    "days": 991,
+    "total_return": 3.1315154607083535,
+    "cagr": 0.6862510167931932,
+    "sharpe": 1.3485091186499027,
+    "max_drawdown": 0.28098516225398074,
+    "worst_month": -0.17659848583264104,
+    "worst_month_label": "2025-02",
+    "longest_losing_days": 8
+   },
+   "alpha_evidence": false,
+   "verified_alpha": false,
+   "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+  },
+  "flush_reversal_72h": {
+   "walk_forward": {
+    "days": 1234,
+    "total_return": 0.3514348672726846,
+    "sharpe": 0.7635470430041124,
+    "max_drawdown": 0.18805050995298833
+   },
+   "recorded_sharpe": 0.7635470430041124,
+   "regression_alpha": {
+    "alpha_annual": 0.029172312118032104,
+    "t_newey_west": 0.4672960926507396,
+    "lags": 6,
+    "days": 1234,
+    "betas": {
+     "btc_hold": 0.17665645366220245,
+     "btc_vol_target": -0.09252629115392728
+    },
+    "passes": false
+   },
+   "portfolio_gain": {
+    "weights": {
+     "strategy": 0.7918701938430456,
+     "benchmark": 0.20812980615695434
+    },
+    "sharpe_with": 1.1638124246109478,
+    "sharpe_benchmark": 1.1990896060336413,
+    "passes": false
+   },
+   "family_deflated": {
+    "n_trials": 107,
+    "sharpe_std": 0.21603518529891846,
+    "probability": 0.6500521583826424,
+    "threshold": 0.9,
+    "passes": false
+   },
+   "power": {
+    "at_sharpe_0.5": 0.1510202055555924
+   },
+   "btc_hold": {
+    "days": 1234,
+    "total_return": 3.796361081135336,
+    "cagr": 0.590026053035881,
+    "sharpe": 1.1990896060336413,
+    "max_drawdown": 0.35433296491874444,
+    "worst_month": -0.17659848583264104,
+    "worst_month_label": "2025-02",
+    "longest_losing_days": 8
+   },
+   "alpha_evidence": false,
+   "verified_alpha": false,
+   "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+  },
+  "pair_ridge_PD_7d": {
+   "walk_forward": {
+    "days": 991,
+    "total_return": 0.6884260203143799,
+    "sharpe": 0.7044368723092104,
+    "max_drawdown": 0.44845208696890637
+   },
+   "recorded_sharpe": 0.7044368723092104,
+   "regression_alpha": {
+    "alpha_annual": 0.2551358818039845,
+    "t_newey_west": 1.070514740682894,
+    "lags": 6,
+    "days": 991,
+    "betas": {
+     "btc_hold": -0.2615170287731882,
+     "btc_vol_target": 0.4373380968759502
+    },
+    "passes": false
+   },
+   "portfolio_gain": {
+    "weights": {
+     "strategy": 0.5563684398863038,
+     "benchmark": 0.44363156011369625
+    },
+    "sharpe_with": 1.413287964059006,
+    "sharpe_benchmark": 1.3485091186499027,
+    "passes": true
+   },
+   "family_deflated": {
+    "n_trials": 10,
+    "sharpe_std": 0.5928229832051509,
+    "probability": 0.35417275063870435,
+    "threshold": 0.9,
+    "passes": false
+   },
+   "power": {
+    "at_sharpe_0.5": 0.13064529435017422
+   },
+   "btc_hold": {
+    "days": 991,
+    "total_return": 3.1315154607083535,
+    "cagr": 0.6862510167931932,
+    "sharpe": 1.3485091186499027,
+    "max_drawdown": 0.28098516225398074,
+    "worst_month": -0.17659848583264104,
+    "worst_month_label": "2025-02",
+    "longest_losing_days": 8
+   },
+   "alpha_evidence": false,
+   "verified_alpha": false,
+   "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+  }
+ },
+ "weak_portfolio_2026-11-18": {
+  "walk_forward": {
+   "days": 1826,
+   "total_return": 0.6673668819784997,
+   "cagr": 0.10759736877831627,
+   "sharpe": 0.45277080804647946,
+   "max_drawdown": 0.594671228368137,
+   "worst_month": -0.2326573289971815,
+   "worst_month_label": "2021-05",
+   "longest_losing_days": 10
+  },
+  "regression_alpha": {
+   "alpha_annual": 0.05352535069364636,
+   "t_newey_west": 0.3580654181516248,
+   "lags": 7,
+   "days": 1826,
+   "betas": {
+    "btc_hold": 0.18153499327729855,
+    "btc_vol_target": 0.6798228159487469
+   },
+   "passes": false
+  },
+  "portfolio_gain": {
+   "weights": {
+    "strategy": 0.5415546016849612,
+    "benchmark": 0.4584453983150389
+   },
+   "sharpe_with": 0.5014025530574157,
+   "sharpe_benchmark": 0.45191109516028277,
+   "passes": true
+  },
+  "family_deflated": null,
+  "power": {
+   "at_sharpe_1.0": 0.6090146559851406,
+   "at_sharpe_1.5": 0.9185006955428978
+  },
+  "mean_member_correlation": {
+   "1": 0.6357965754211656,
+   "2": 0.5583561965968141,
+   "3": 0.6870605939768079,
+   "4": 0.5481718995837641,
+   "5": 0.8187440649130486
+  },
+  "alpha_evidence": false,
+  "verified_alpha": false,
+  "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+ },
+ "lab_2026-11-17c": {
+  "benchmarks": {
+   "btc_hold": {
+    "days": 1826,
+    "total_return": 0.6223362642290444,
+    "cagr": 0.10155239407871797,
+    "sharpe": 0.45191109516028277,
+    "max_drawdown": 0.7666956183209539,
+    "worst_month": -0.3734314952606783,
+    "worst_month_label": "2022-06",
+    "longest_losing_days": 8
+   },
+   "btc_vol_target": {
+    "days": 1826,
+    "total_return": 0.8117792643759822,
+    "cagr": 0.1261410430801797,
+    "sharpe": 0.5383205920489937,
+    "max_drawdown": 0.46570086058257554,
+    "worst_month": -0.1627797305738613,
+    "worst_month_label": "2022-11",
+    "longest_losing_days": 8
+   }
+  },
+  "ideas": {
+   "A1_tsmom_long": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": 1.7657166872674308,
+     "sharpe": 0.6386795547935799,
+     "max_drawdown": 0.7168655381118532
+    },
+    "regression_alpha": {
+     "alpha_annual": 0.1907629950871344,
+     "t_newey_west": 0.985188049259671,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": 0.1302326810245587,
+      "btc_vol_target": 0.9819522616108752
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.47749188944245013,
+      "benchmark": 0.5225081105575499
+     },
+     "sharpe_with": 0.6133404099173818,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": true
+    },
+    "family_deflated": {
+     "n_trials": 18,
+     "sharpe_std": 0.16616127679913878,
+     "probability": 0.7704202164740735,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.29790770501403124,
+     "at_sharpe_0.5": 0.20104021319815638
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "A2_tsmom_ls": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": -0.5543701100265218,
+     "sharpe": 0.29022365081040613,
+     "max_drawdown": 0.8199815703806054
+    },
+    "regression_alpha": {
+     "alpha_annual": 0.29954412295845234,
+     "t_newey_west": 0.8253058094773785,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": -1.2026306417626842,
+      "btc_vol_target": 1.6233266681803855
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.373874711873713,
+      "benchmark": 0.626125288126287
+     },
+     "sharpe_with": 0.5938943510517428,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": true
+    },
+    "family_deflated": {
+     "n_trials": 18,
+     "sharpe_std": 0.3723856492420842,
+     "probability": 0.18521415232944194,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.09949722524579234,
+     "at_sharpe_0.5": 0.20104021319815654
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "A3_ma_cross_long": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": -0.6877898604305175,
+     "sharpe": -0.15324174462911522,
+     "max_drawdown": 0.8196077819211811
+    },
+    "regression_alpha": {
+     "alpha_annual": -0.23136827880306685,
+     "t_newey_west": -1.102498874133138,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": 0.3360142041798698,
+      "btc_vol_target": 0.3854987146000022
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.5052924532350229,
+      "benchmark": 0.494707546764977
+     },
+     "sharpe_with": 0.16986025463206333,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 18,
+     "sharpe_std": 0.3469887567743685,
+     "probability": 0.03713593907876369,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.06356374497712973,
+     "at_sharpe_0.5": 0.20104021319815638
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "A4_donchian_long": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": -0.18011100246305167,
+     "sharpe": 0.21018866226013475,
+     "max_drawdown": 0.6345925275351263
+    },
+    "regression_alpha": {
+     "alpha_annual": -0.04796668611813795,
+     "t_newey_west": -0.2414291769045261,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": 0.15723328386175778,
+      "btc_vol_target": 0.7551907450339967
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.4982386990383596,
+      "benchmark": 0.5017613009616404
+     },
+     "sharpe_with": 0.37701290828564077,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 18,
+     "sharpe_std": 0.12562547574632038,
+     "probability": 0.47977706024766703,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.07568083438598369,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "A5_btc_gate_tsmom": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": 0.4538971771379765,
+     "sharpe": 0.40071651276519665,
+     "max_drawdown": 0.6674530357955364
+    },
+    "regression_alpha": {
+     "alpha_annual": 0.048106736436369875,
+     "t_newey_west": 0.25882416188213225,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": -0.054411654553276075,
+      "btc_vol_target": 1.0157832692113564
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.5212994807563566,
+      "benchmark": 0.47870051924364343
+     },
+     "sharpe_with": 0.4906228103477129,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": true
+    },
+    "family_deflated": {
+     "n_trials": 18,
+     "sharpe_std": 0.14022887228517938,
+     "probability": 0.6238599156946989,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.1458782292994349,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "A6_voladj_mom": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": 0.4868732221817387,
+     "sharpe": 0.42216809052770976,
+     "max_drawdown": 0.6081752556863549
+    },
+    "regression_alpha": {
+     "alpha_annual": 0.08295348416638007,
+     "t_newey_west": 0.39487953189349706,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": 0.17057796204270423,
+      "btc_vol_target": 0.6456598146898501
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.5005702094824575,
+      "benchmark": 0.49942979051754244
+     },
+     "sharpe_with": 0.5039741583483343,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": true
+    },
+    "family_deflated": {
+     "n_trials": 18,
+     "sharpe_std": 0.20920853285404636,
+     "probability": 0.5305491026641472,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.1567248799148057,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "A7_rel_strength_btc": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": 0.3871648330626085,
+     "sharpe": 0.36186831013987975,
+     "max_drawdown": 0.4144148046252114
+    },
+    "regression_alpha": {
+     "alpha_annual": 0.06422187487944919,
+     "t_newey_west": 0.39648643612823603,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": 0.09304589143815006,
+      "btc_vol_target": 0.2923612055153801
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.5952865698264903,
+      "benchmark": 0.4047134301735097
+     },
+     "sharpe_with": 0.49375656451781547,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": true
+    },
+    "family_deflated": {
+     "n_trials": 18,
+     "sharpe_std": 0.12524240846730023,
+     "probability": 0.6143679694102878,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.12776092626494293,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "A8_xs_momentum_top3": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": 0.9997395940132143,
+     "sharpe": 0.5396044698805277,
+     "max_drawdown": 0.7420739117932478
+    },
+    "regression_alpha": {
+     "alpha_annual": 0.15079059573985795,
+     "t_newey_west": 0.6451516112241497,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": 0.14678116133833286,
+      "btc_vol_target": 1.0474941311044474
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.4521186796680057,
+      "benchmark": 0.5478813203319943
+     },
+     "sharpe_with": 0.5602578408512447,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": true
+    },
+    "family_deflated": {
+     "n_trials": 18,
+     "sharpe_std": 0.12864768747883523,
+     "probability": 0.7511148197413234,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.22648298544857898,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "B1_xs_reversal_long": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": -0.9278855494187784,
+     "sharpe": -0.17873546162379336,
+     "max_drawdown": 0.9417238175824725
+    },
+    "regression_alpha": {
+     "alpha_annual": -0.4936222593991241,
+     "t_newey_west": -2.006410782453994,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": 0.6336001562506264,
+      "btc_vol_target": 1.095757118866635
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.39349855230849295,
+      "benchmark": 0.606501447691507
+     },
+     "sharpe_with": 0.1449061776124177,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 18,
+     "sharpe_std": 0.42327914206803774,
+     "probability": 0.015438269295951441,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.06850143078487432,
+     "at_sharpe_0.5": 0.20104021319815638
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "B2_xs_reversal_ls": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": 0.0,
+     "sharpe": 0.0,
+     "max_drawdown": 0.0
+    },
+    "regression_alpha": {
+     "alpha_annual": 0.0,
+     "t_newey_west": 0.0,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": 0.0,
+      "btc_vol_target": 0.0
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": NaN,
+      "benchmark": 0.0
+     },
+     "sharpe_with": 0.0,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 18,
+     "sharpe_std": 0.0,
+     "probability": NaN,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.0,
+     "at_sharpe_0.5": 0.0
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "B3_dip_in_uptrend": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": 0.9807180453414315,
+     "sharpe": 0.5895253550896487,
+     "max_drawdown": 0.31894158199032774
+    },
+    "regression_alpha": {
+     "alpha_annual": 0.13804589199623957,
+     "t_newey_west": 1.2369183758055469,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": 0.2561596029603674,
+      "btc_vol_target": -0.09959430550603557
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.6375673568334271,
+      "benchmark": 0.3624326431665729
+     },
+     "sharpe_with": 0.631359218883216,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": true
+    },
+    "family_deflated": {
+     "n_trials": 18,
+     "sharpe_std": 0.2634067397799953,
+     "probability": 0.5912153125203079,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.26115829795123935,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "B4_band_reversion_ls": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": -0.760515534847591,
+     "sharpe": -0.3486492612843779,
+     "max_drawdown": 0.7960560916858916
+    },
+    "regression_alpha": {
+     "alpha_annual": -0.18052163367151733,
+     "t_newey_west": -0.866492787834244,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": 0.27565334989655815,
+      "btc_vol_target": -0.340176162473197
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.5343330854885426,
+      "benchmark": 0.46566691451145736
+     },
+     "sharpe_with": 0.06913661233762332,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 18,
+     "sharpe_std": 0.23885041916738572,
+     "probability": 0.03830661126801195,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.12204488883395571,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "B5_flush_reversal": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": -0.5872147100870956,
+     "sharpe": -0.49442528028495125,
+     "max_drawdown": 0.6712354544512107
+    },
+    "regression_alpha": {
+     "alpha_annual": -0.17383354697883394,
+     "t_newey_west": -1.2187739716464818,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": 0.13551903731254406,
+      "btc_vol_target": 0.019947308970640967
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.6671060851999685,
+      "benchmark": 0.3328939148000315
+     },
+     "sharpe_with": -0.02644616924610793,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 24,
+     "sharpe_std": 0.28810561139138186,
+     "probability": 0.005859954443935937,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.19761215749906183,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "C1_funding_carry_short": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": -0.147515843023453,
+     "sharpe": 0.02077151943746367,
+     "max_drawdown": 0.4924992641076831
+    },
+    "regression_alpha": {
+     "alpha_annual": 0.03806417003838971,
+     "t_newey_west": 0.3299345913868644,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": -0.23936062853061643,
+      "btc_vol_target": 0.16645758787386697
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.6606240636540212,
+      "benchmark": 0.3393759363459788
+     },
+     "sharpe_with": 0.3992536597824672,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 18,
+     "sharpe_std": 0.19124221530567947,
+     "probability": 0.22672031932919356,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.05024728973722147,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "C2_funding_negative_long": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": 0.16171759104768735,
+     "sharpe": 0.27454447635078677,
+     "max_drawdown": 0.33359054807946176
+    },
+    "regression_alpha": {
+     "alpha_annual": 0.03371580596216192,
+     "t_newey_west": 0.50192005873023,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": 0.09607761380197075,
+      "btc_vol_target": -0.09708470103931043
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.7852119792343135,
+      "benchmark": 0.21478802076568657
+     },
+     "sharpe_with": 0.47518888924896335,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": true
+    },
+    "family_deflated": {
+     "n_trials": 18,
+     "sharpe_std": 0.3694255649563609,
+     "probability": 0.18321307272290677,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.09419412221179306,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "C3_xs_funding_top_long": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": -0.9278855494187784,
+     "sharpe": -0.17873546162379336,
+     "max_drawdown": 0.9417238175824725
+    },
+    "regression_alpha": {
+     "alpha_annual": -0.4936222593991241,
+     "t_newey_west": -2.006410782453994,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": 0.6336001562506264,
+      "btc_vol_target": 1.095757118866635
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.39349855230849295,
+      "benchmark": 0.606501447691507
+     },
+     "sharpe_with": 0.1449061776124177,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 18,
+     "sharpe_std": 0.42327914206803774,
+     "probability": 0.015438269295951441,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.06850143078487432,
+     "at_sharpe_0.5": 0.20104021319815638
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "C4_xs_funding_ls": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": 0.0,
+     "sharpe": 0.0,
+     "max_drawdown": 0.0
+    },
+    "regression_alpha": {
+     "alpha_annual": 0.0,
+     "t_newey_west": 0.0,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": 0.0,
+      "btc_vol_target": 0.0
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": NaN,
+      "benchmark": 0.0
+     },
+     "sharpe_with": 0.0,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 18,
+     "sharpe_std": 0.0,
+     "probability": NaN,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.0,
+     "at_sharpe_0.5": 0.0
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "C5_trend_not_crowded": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": 1.4414580998526936,
+     "sharpe": 0.5980340879203853,
+     "max_drawdown": 0.7086518037308766
+    },
+    "regression_alpha": {
+     "alpha_annual": 0.1697383545143758,
+     "t_newey_west": 0.874819965760921,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": 0.21461793806630097,
+      "btc_vol_target": 0.759115919510134
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.48619452487131565,
+      "benchmark": 0.5138054751286844
+     },
+     "sharpe_with": 0.591994390798349,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": true
+    },
+    "family_deflated": {
+     "n_trials": 18,
+     "sharpe_std": 0.1269513144830871,
+     "probability": 0.7912941102849403,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.26734257497001007,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "D1_volume_breakout": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": 0.12669560836444016,
+     "sharpe": 0.24664179066670633,
+     "max_drawdown": 0.5037743955283454
+    },
+    "regression_alpha": {
+     "alpha_annual": 0.0193772054332882,
+     "t_newey_west": 0.12614433790114163,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": 0.12642998306546926,
+      "btc_vol_target": 0.21675312594341964
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.610497946887458,
+      "benchmark": 0.38950205311254216
+     },
+     "sharpe_with": 0.421547861295326,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 24,
+     "sharpe_std": 0.33914935561933124,
+     "probability": 0.17211246789594226,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.0855292455523393,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "D2_taker_imbalance": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": 1.1349399933886604,
+     "sharpe": 0.7472072735394335,
+     "max_drawdown": 0.2652387118515125
+    },
+    "regression_alpha": {
+     "alpha_annual": 0.14121844760480273,
+     "t_newey_west": 1.3566274445007522,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": -0.013162476902522265,
+      "btc_vol_target": 0.24967609561172102
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.697377012925917,
+      "benchmark": 0.30262298707408297
+     },
+     "sharpe_with": 0.7536446622909426,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": true
+    },
+    "family_deflated": {
+     "n_trials": 18,
+     "sharpe_std": 0.37973239751654814,
+     "probability": 0.5417594018694704,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.3865465058490145,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "D3_surge_fade_short": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": -0.08136988896381747,
+     "sharpe": -0.08497027938037599,
+     "max_drawdown": 0.2626296248421244
+    },
+    "regression_alpha": {
+     "alpha_annual": -0.0016341355914436617,
+     "t_newey_west": -0.028844940439097168,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": -0.006479866536065431,
+      "btc_vol_target": -0.040364736521763346
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.8249800281748352,
+      "benchmark": 0.1750199718251647
+     },
+     "sharpe_with": 0.2779322390547364,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 24,
+     "sharpe_std": 0.1583986666558706,
+     "probability": 0.18595873382492611,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.054147849590624235,
+     "at_sharpe_0.5": 0.20104021319815638
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "E1_squeeze_breakout": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": 0.09558295005656992,
+     "sharpe": 0.2899501312723825,
+     "max_drawdown": 0.7270300145085153
+    },
+    "regression_alpha": {
+     "alpha_annual": 0.016078398682123084,
+     "t_newey_west": 0.08136159886972441,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": 0.11342423764225462,
+      "btc_vol_target": 0.5896445935192582
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.5294100220239483,
+      "benchmark": 0.4705899779760518
+     },
+     "sharpe_with": 0.4328091627108945,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 18,
+     "sharpe_std": 0.2033018557508084,
+     "probability": 0.42357333960086896,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.09940202033176075,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "E2_calm_trend": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": 1.176219270705562,
+     "sharpe": 0.5680412779118904,
+     "max_drawdown": 0.704382638779687
+    },
+    "regression_alpha": {
+     "alpha_annual": 0.14738902768123685,
+     "t_newey_west": 0.8332927084398449,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": 0.08169965568651437,
+      "btc_vol_target": 0.5957526180842476
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.540762797685912,
+      "benchmark": 0.45923720231408804
+     },
+     "sharpe_with": 0.5974453947132676,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": true
+    },
+    "family_deflated": {
+     "n_trials": 18,
+     "sharpe_std": 0.15955566884611475,
+     "probability": 0.7274012615318689,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.24589200258887764,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "E3_vol_target_trend": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": 1.7326684847055591,
+     "sharpe": 0.6437081239677391,
+     "max_drawdown": 0.6869945705610879
+    },
+    "regression_alpha": {
+     "alpha_annual": 0.16281594218686482,
+     "t_newey_west": 0.9785835616367949,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": 0.0595162960489279,
+      "btc_vol_target": 0.99853614805304
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.508797228669365,
+      "benchmark": 0.4912027713306349
+     },
+     "sharpe_with": 0.6136275796458053,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": true
+    },
+    "family_deflated": {
+     "n_trials": 18,
+     "sharpe_std": 0.10956046798042034,
+     "probability": 0.837677312365958,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.30180124398677105,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "E4_high_vol_off": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": -0.9150180862021253,
+     "sharpe": -0.1737754250476322,
+     "max_drawdown": 0.9277359853270691
+    },
+    "regression_alpha": {
+     "alpha_annual": -0.4631963503347236,
+     "t_newey_west": -1.8882425163894299,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": 0.6097142256647354,
+      "btc_vol_target": 1.0100600556588353
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.4032940160021536,
+      "benchmark": 0.5967059839978464
+     },
+     "sharpe_with": 0.14810254160397765,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 18,
+     "sharpe_std": 0.14135186344491463,
+     "probability": 0.1639147546346842,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.06747931588644221,
+     "at_sharpe_0.5": 0.20104021319815638
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "F1_btc_trend_beta": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": 3.3003006785045086,
+     "sharpe": 0.7737813187487693,
+     "max_drawdown": 0.6370694440576853
+    },
+    "regression_alpha": {
+     "alpha_annual": 0.29796401484369606,
+     "t_newey_west": 1.339678036374401,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": 0.12676690483168884,
+      "btc_vol_target": 1.0768265135975148
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.4569724252053602,
+      "benchmark": 0.5430275747946399
+     },
+     "sharpe_with": 0.6910259360865542,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": true
+    },
+    "family_deflated": {
+     "n_trials": 18,
+     "sharpe_std": 0.2550422009566895,
+     "probability": 0.749086907175731,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.40944432726475555,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "F2_btc_lead_hourly": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": -0.8833525880858359,
+     "sharpe": -0.33811978028102657,
+     "max_drawdown": 0.8737613848483625
+    },
+    "regression_alpha": {
+     "alpha_annual": -0.36020129409030255,
+     "t_newey_west": -1.6686313903023016,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": 1.0858266220782868,
+      "btc_vol_target": -0.778219886973723
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.46179610964184686,
+      "benchmark": 0.5382038903581531
+     },
+     "sharpe_with": 0.06385091746954515,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 24,
+     "sharpe_std": 0.17959551162981058,
+     "probability": 0.06035613899689743,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.11765465348277392,
+     "at_sharpe_0.5": 0.20104021319815638
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "F3_bear_short": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": -0.7452239917356012,
+     "sharpe": -0.19681371888177582,
+     "max_drawdown": 0.8029273311143731
+    },
+    "regression_alpha": {
+     "alpha_annual": 0.008160488858868357,
+     "t_newey_west": 0.04232257267298911,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": -0.9266163171765914,
+      "btc_vol_target": 0.6714343496619718
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.4935484527379382,
+      "benchmark": 0.5064515472620617
+     },
+     "sharpe_with": 0.2738864774672076,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 18,
+     "sharpe_std": 0.12287094527669688,
+     "probability": 0.1720250019689783,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.0724799885268549,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "F4_regime_switch_ls": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": -0.2868111185354284,
+     "sharpe": 0.32011771411660817,
+     "max_drawdown": 0.716135459505438
+    },
+    "regression_alpha": {
+     "alpha_annual": 0.2577807769058667,
+     "t_newey_west": 0.790328898948058,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": -0.9819358018551712,
+      "btc_vol_target": 1.4797486391394452
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.40662732460634177,
+      "benchmark": 0.5933726753936581
+     },
+     "sharpe_with": 0.5924708501463196,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": true
+    },
+    "family_deflated": {
+     "n_trials": 18,
+     "sharpe_std": 0.18560918604330012,
+     "probability": 0.4785758667400221,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.11048232399855788,
+     "at_sharpe_0.5": 0.20104021319815654
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "overlay": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": 0.6029262510038147,
+     "sharpe": 0.5179560070357258,
+     "max_drawdown": 0.2541244555422897
+    },
+    "regression_alpha": {
+     "alpha_annual": 0.047221202596553144,
+     "t_newey_west": 0.5414210857018872,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": -0.12909840180594837,
+      "btc_vol_target": 0.64087864161476
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.7020670217870181,
+      "benchmark": 0.297932978212982
+     },
+     "sharpe_with": 0.5650550427600322,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": true
+    },
+    "family_deflated": {
+     "n_trials": 6,
+     "sharpe_std": 0.12213041349389185,
+     "probability": 0.7921521650623193,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.2123411284402771,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   }
+  }
+ },
+ "lab_2026-11-17": {
+  "benchmarks": {
+   "btc_hold": {
+    "days": 1826,
+    "total_return": 0.6223362642290444,
+    "cagr": 0.10155239407871797,
+    "sharpe": 0.45191109516028277,
+    "max_drawdown": 0.7666956183209539,
+    "worst_month": -0.3734314952606783,
+    "worst_month_label": "2022-06",
+    "longest_losing_days": 8
+   },
+   "btc_vol_target": {
+    "days": 1826,
+    "total_return": 0.5351980931364595,
+    "cagr": 0.08946302155054675,
+    "sharpe": 0.41925405827813905,
+    "max_drawdown": 0.6336875136276019,
+    "worst_month": -0.19224984024061476,
+    "worst_month_label": "2022-06",
+    "longest_losing_days": 8
+   }
+  },
+  "ideas": {
+   "A1_tsmom_long": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": 0.04922696581971664,
+     "sharpe": 0.20848339966425491,
+     "max_drawdown": 0.5878252158968119
+    },
+    "regression_alpha": {
+     "alpha_annual": -0.006176497231153081,
+     "t_newey_west": -0.0438374425387877,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": -0.04433458241615237,
+      "btc_vol_target": 0.6293319338891739
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.6029789123678934,
+      "benchmark": 0.3970210876321067
+     },
+     "sharpe_with": 0.3793411522600191,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 36,
+     "sharpe_std": 0.17846958681383476,
+     "probability": 0.3478720706503814,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.07526049832667055,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "A2_tsmom_ls": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": -0.4303307896578621,
+     "sharpe": 0.001527290320196781,
+     "max_drawdown": 0.6407909502792122
+    },
+    "regression_alpha": {
+     "alpha_annual": 0.03805713010784814,
+     "t_newey_west": 0.2001781864992845,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": -0.42828109626827165,
+      "btc_vol_target": 0.47114607847123785
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.5380985141012767,
+      "benchmark": 0.46190148589872326
+     },
+     "sharpe_with": 0.35073814594196095,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 36,
+     "sharpe_std": 0.14259081976378904,
+     "probability": 0.24783787738952928,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.05000133674151264,
+     "at_sharpe_0.5": 0.20104021319815654
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "A3_ma_cross_long": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": -0.23196720850178487,
+     "sharpe": -0.0981779105272464,
+     "max_drawdown": 0.5482136186213169
+    },
+    "regression_alpha": {
+     "alpha_annual": -0.0662620270488486,
+     "t_newey_west": -0.6934062043644932,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": -0.08616612812810491,
+      "btc_vol_target": 0.43285550258676103
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.6966572796831042,
+      "benchmark": 0.3033427203168958
+     },
+     "sharpe_with": 0.21078309373525234,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 36,
+     "sharpe_std": 0.154682431122789,
+     "probability": 0.16794603165057864,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.05554208738392091,
+     "at_sharpe_0.5": 0.20104021319815654
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "A4_donchian_long": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": -0.11973445362504709,
+     "sharpe": -0.0076209138342461,
+     "max_drawdown": 0.3486699506791119
+    },
+    "regression_alpha": {
+     "alpha_annual": -0.03740859086619066,
+     "t_newey_west": -0.44969176185663606,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": -0.09122965460944783,
+      "btc_vol_target": 0.39522784604878913
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.7177905296007938,
+      "benchmark": 0.2822094703992062
+     },
+     "sharpe_with": 0.2673535491118823,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 36,
+     "sharpe_std": 0.11336693983457931,
+     "probability": 0.28722667173157324,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.05003328333462563,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "A5_btc_gate_tsmom": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": -0.00019024875080364545,
+     "sharpe": 0.1571586059770275,
+     "max_drawdown": 0.5018658725063087
+    },
+    "regression_alpha": {
+     "alpha_annual": -0.0026326828604725174,
+     "t_newey_west": -0.019171819467577515,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": -0.1523620577233024,
+      "btc_vol_target": 0.6095930064307276
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.6369687200403747,
+      "benchmark": 0.36303127995962525
+     },
+     "sharpe_with": 0.3659901870854977,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 36,
+     "sharpe_std": 0.09846341160719255,
+     "probability": 0.45161395638819796,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.06427153144054898,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "A6_voladj_mom": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": 0.26733072935185875,
+     "sharpe": 0.3088244021722957,
+     "max_drawdown": 0.4281300932680362
+    },
+    "regression_alpha": {
+     "alpha_annual": 0.0389340073056842,
+     "t_newey_west": 0.31280094966705774,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": -0.04805465108229888,
+      "btc_vol_target": 0.48977996339131274
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.6321428672063611,
+      "benchmark": 0.36785713279363885
+     },
+     "sharpe_with": 0.44974862096282214,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 36,
+     "sharpe_std": 0.1762571131695516,
+     "probability": 0.43822261452132016,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.10619705823997368,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "A7_rel_strength_btc": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": -0.09109447997161768,
+     "sharpe": 0.06328596328783882,
+     "max_drawdown": 0.36114978299260114
+    },
+    "regression_alpha": {
+     "alpha_annual": -0.03074350593392611,
+     "t_newey_west": -0.2921167060942104,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": -0.07604707395973631,
+      "btc_vol_target": 0.4505588325113838
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.6732525627502574,
+      "benchmark": 0.32674743724974264
+     },
+     "sharpe_with": 0.3068741947406579,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 36,
+     "sharpe_std": 0.12087341796555842,
+     "probability": 0.33031692032017707,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.052298392758380684,
+     "at_sharpe_0.5": 0.20104021319815638
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "A8_xs_momentum_top3": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": -0.021426343947436033,
+     "sharpe": 0.07270465826436169,
+     "max_drawdown": 0.2531055263686549
+    },
+    "regression_alpha": {
+     "alpha_annual": -0.025729815764421723,
+     "t_newey_west": -0.3441677489020464,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": -0.01635635765839831,
+      "btc_vol_target": 0.2950806399472978
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.7431728578880561,
+      "benchmark": 0.25682714211194374
+     },
+     "sharpe_with": 0.30562730355165607,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 36,
+     "sharpe_std": 0.31570388959339357,
+     "probability": 0.08774906498771678,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.053034769130704894,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "B1_xs_reversal_long": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": -0.578495986369733,
+     "sharpe": -0.8217963388982773,
+     "max_drawdown": 0.606293073525612
+    },
+    "regression_alpha": {
+     "alpha_annual": -0.21066442283278897,
+     "t_newey_west": -3.3634375151111042,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": 0.17028883063802688,
+      "btc_vol_target": 0.08852645895458716
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.7459787974332085,
+      "benchmark": 0.2540212025667915
+     },
+     "sharpe_with": -0.20308811071011293,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 36,
+     "sharpe_std": 0.4092000757472744,
+     "probability": 8.619099255202229e-05,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.45157464613584564,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "B2_xs_reversal_ls": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": -0.6962648303194086,
+     "sharpe": -1.0186833245039195,
+     "max_drawdown": 0.7278394392830139
+    },
+    "regression_alpha": {
+     "alpha_annual": -0.22565507124414674,
+     "t_newey_west": -2.5905561819930836,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": 0.04366058098607737,
+      "btc_vol_target": -0.007094690453523077
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.7232817217201326,
+      "benchmark": 0.27671827827986734
+     },
+     "sharpe_with": -0.3816299103575814,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 36,
+     "sharpe_std": 0.3299982908693259,
+     "probability": 7.79216074085831e-05,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.6249603630223003,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "B3_dip_in_uptrend": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": -0.10850987285295899,
+     "sharpe": -0.11329368988550083,
+     "max_drawdown": 0.25249307086083617
+    },
+    "regression_alpha": {
+     "alpha_annual": -0.04000254064132879,
+     "t_newey_west": -1.0636581304359745,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": 0.3042132590992059,
+      "btc_vol_target": -0.34258735481357433
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.8105567068998345,
+      "benchmark": 0.18944329310016553
+     },
+     "sharpe_with": 0.2017869294000676,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 36,
+     "sharpe_std": 0.15368937466197694,
+     "probability": 0.16241610656883176,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.05738794758307044,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "B4_band_reversion_ls": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": -0.6518479547367644,
+     "sharpe": -0.7551883622176139,
+     "max_drawdown": 0.7295348908159571
+    },
+    "regression_alpha": {
+     "alpha_annual": -0.19986058977010485,
+     "t_newey_west": -2.1827153452185826,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": 0.29954428373238784,
+      "btc_vol_target": -0.3838493603378914
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.6969575358680379,
+      "benchmark": 0.3030424641319621
+     },
+     "sharpe_with": -0.19991265715045803,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 36,
+     "sharpe_std": 0.2031950164371871,
+     "probability": 0.00386414208630447,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.3933852191547034,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "B5_flush_reversal": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": -0.01923181348664127,
+     "sharpe": 0.04084646266146399,
+     "max_drawdown": 0.2528269892522066
+    },
+    "regression_alpha": {
+     "alpha_annual": -0.006092085257794606,
+     "t_newey_west": -0.10639697704700479,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": 0.05362511961933151,
+      "btc_vol_target": -0.011021906107587328
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.7989273918605893,
+      "benchmark": 0.20107260813941083
+     },
+     "sharpe_with": 0.31989533034488454,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 48,
+     "sharpe_std": 0.158796313233762,
+     "probability": 0.23763544181831514,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.0509566788471892,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "C1_funding_carry_short": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": -0.28549701689183504,
+     "sharpe": -0.3842629661383881,
+     "max_drawdown": 0.3869039099929197
+    },
+    "regression_alpha": {
+     "alpha_annual": -0.03595708176583952,
+     "t_newey_west": -0.6439642941273397,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": -0.07956140152533114,
+      "btc_vol_target": -0.003940491477911182
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.7903127890642695,
+      "benchmark": 0.20968721093573062
+     },
+     "sharpe_with": 0.05754097259950588,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 36,
+     "sharpe_std": 0.085010508006932,
+     "probability": 0.10540626641598594,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.13796462937591414,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "C2_funding_negative_long": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": 0.20708658351068543,
+     "sharpe": 0.3026115334601957,
+     "max_drawdown": 0.2340899058182906
+    },
+    "regression_alpha": {
+     "alpha_annual": 0.014321874348563298,
+     "t_newey_west": 0.23978047399056387,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": 0.2053103822339441,
+      "btc_vol_target": -0.0861575326917702
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.759952691150539,
+      "benchmark": 0.240047308849461
+     },
+     "sharpe_with": 0.4380110653972864,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 36,
+     "sharpe_std": 0.18601460943461592,
+     "probability": 0.4143329982866539,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.10390974611905175,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "C3_xs_funding_top_long": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": -0.6673096589502885,
+     "sharpe": -1.0244425093422316,
+     "max_drawdown": 0.677012957483882
+    },
+    "regression_alpha": {
+     "alpha_annual": -0.2589088237824121,
+     "t_newey_west": -3.8886872757156232,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": 0.1498792504227878,
+      "btc_vol_target": 0.1393614299018495
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.7385854059719569,
+      "benchmark": 0.2614145940280433
+     },
+     "sharpe_with": -0.31388645704813495,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 36,
+     "sharpe_std": 0.2896025731861928,
+     "probability": 0.00013224661725594572,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.6298343889187383,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "C4_xs_funding_ls": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": -0.6019314695529574,
+     "sharpe": -0.9314184767786589,
+     "max_drawdown": 0.6152415185036095
+    },
+    "regression_alpha": {
+     "alpha_annual": -0.16601812059306717,
+     "t_newey_west": -2.2306013776912543,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": -0.033424741406621446,
+      "btc_vol_target": 0.04327765205254045
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.7543119608285568,
+      "benchmark": 0.2456880391714432
+     },
+     "sharpe_with": -0.34278817025756586,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 36,
+     "sharpe_std": 0.3623585608873892,
+     "probability": 0.00014192591896255657,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.5491001288090742,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "C5_trend_not_crowded": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": 0.6053229742355037,
+     "sharpe": 0.4676905733039444,
+     "max_drawdown": 0.49622096846765607
+    },
+    "regression_alpha": {
+     "alpha_annual": 0.07775836608922906,
+     "t_newey_west": 0.600375373062628,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": -0.05574376858967307,
+      "btc_vol_target": 0.4979175721194173
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.6529911496124782,
+      "benchmark": 0.3470088503875218
+     },
+     "sharpe_with": 0.5369956613097655,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": true
+    },
+    "family_deflated": {
+     "n_trials": 36,
+     "sharpe_std": 0.1733160894600433,
+     "probability": 0.5852109755307209,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.18171080947451596,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "D1_volume_breakout": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": -0.07568319124797618,
+     "sharpe": 0.020490019603734293,
+     "max_drawdown": 0.41134653484351047
+    },
+    "regression_alpha": {
+     "alpha_annual": -0.026698671002800736,
+     "t_newey_west": -0.2924404947319032,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": -0.04842331119831543,
+      "btc_vol_target": 0.28969441642939486
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.7335596945898516,
+      "benchmark": 0.26644030541014835
+     },
+     "sharpe_with": 0.28718359405831695,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 48,
+     "sharpe_std": 0.1329588603037468,
+     "probability": 0.2652578825672603,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.050240631535001634,
+     "at_sharpe_0.5": 0.20104021319815654
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "D2_taker_imbalance": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": 0.2335441912638927,
+     "sharpe": 0.7714470400277164,
+     "max_drawdown": 0.0633828924234705
+    },
+    "regression_alpha": {
+     "alpha_annual": 0.0391447336427207,
+     "t_newey_west": 1.635848900039332,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": 0.036074114763230705,
+      "btc_vol_target": -0.03152771980832638
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.9075729768222632,
+      "benchmark": 0.09242702317773667
+     },
+     "sharpe_with": 0.8012799684472177,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": true
+    },
+    "family_deflated": {
+     "n_trials": 36,
+     "sharpe_std": 0.4433738320923415,
+     "probability": 0.2901153048931041,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.4074190028844415,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "D3_surge_fade_short": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": -0.05506846249101438,
+     "sharpe": -0.19666578509617144,
+     "max_drawdown": 0.16980070500967992
+    },
+    "regression_alpha": {
+     "alpha_annual": -0.0065155876240976665,
+     "t_newey_west": -0.2606561421779859,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": 0.022917337744158706,
+      "btc_vol_target": -0.062345462331936774
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.9157199150838052,
+      "benchmark": 0.08428008491619476
+     },
+     "sharpe_with": 0.19739274929343953,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 48,
+     "sharpe_std": 0.22266369059103114,
+     "probability": 0.057689822037755335,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.07244581325351371,
+     "at_sharpe_0.5": 0.20104021319815654
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "E1_squeeze_breakout": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": 0.20711831178075069,
+     "sharpe": 0.2762183753304421,
+     "max_drawdown": 0.30426210204985005
+    },
+    "regression_alpha": {
+     "alpha_annual": 0.023945605116514043,
+     "t_newey_west": 0.2203652053846777,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": 0.02926840629158282,
+      "btc_vol_target": 0.25403605929396267
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.6893459782779157,
+      "benchmark": 0.3106540217220844
+     },
+     "sharpe_with": 0.4338089431758481,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 36,
+     "sharpe_std": 0.06037956571954028,
+     "probability": 0.6279731928491793,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.0947453207274972,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "E2_calm_trend": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": 0.03223093104628405,
+     "sharpe": 0.13283527527070696,
+     "max_drawdown": 0.38922416532639126
+    },
+    "regression_alpha": {
+     "alpha_annual": -0.008706083806620638,
+     "t_newey_west": -0.10892441518990545,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": -0.06473980297633948,
+      "btc_vol_target": 0.34874427761710164
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.7330538477642038,
+      "benchmark": 0.26694615223579615
+     },
+     "sharpe_with": 0.3486989087414374,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 36,
+     "sharpe_std": 0.122573705251258,
+     "probability": 0.38557303442907936,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.06017256469711661,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "E3_vol_target_trend": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": 0.45849874689286074,
+     "sharpe": 0.6233946959241355,
+     "max_drawdown": 0.21980889427978134
+    },
+    "regression_alpha": {
+     "alpha_annual": 0.05776818092067023,
+     "t_newey_west": 1.0462388239039049,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": -0.11706825919067404,
+      "btc_vol_target": 0.37904288291060745
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.803040863912014,
+      "benchmark": 0.19695913608798604
+     },
+     "sharpe_with": 0.6282325206518289,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": true
+    },
+    "family_deflated": {
+     "n_trials": 36,
+     "sharpe_std": 0.15267982440639347,
+     "probability": 0.7460757851503294,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.28622076372090544,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "E4_high_vol_off": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": -0.741732484016242,
+     "sharpe": -0.2140456831889775,
+     "max_drawdown": 0.7866501167003115
+    },
+    "regression_alpha": {
+     "alpha_annual": -0.28107756405500023,
+     "t_newey_west": -1.5471197278348603,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": 0.05604344108825539,
+      "btc_vol_target": 1.0042855057806843
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.500628481772105,
+      "benchmark": 0.499371518227895
+     },
+     "sharpe_with": 0.13015493414476673,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 36,
+     "sharpe_std": 0.1391246468597512,
+     "probability": 0.1260068375326972,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.07664479904954101,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "F1_btc_trend_beta": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": 1.1720588752443133,
+     "sharpe": 0.580577813154429,
+     "max_drawdown": 0.5484883511518772
+    },
+    "regression_alpha": {
+     "alpha_annual": 0.15618131046201125,
+     "t_newey_west": 0.9203476529775012,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": -0.1786322545675915,
+      "btc_vol_target": 0.8857342235452441
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.5697317299076834,
+      "benchmark": 0.43026827009231666
+     },
+     "sharpe_with": 0.6004318380541507,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": true
+    },
+    "family_deflated": {
+     "n_trials": 36,
+     "sharpe_std": 0.28527916912859586,
+     "probability": 0.4714950545939354,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.2547388590105498,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "F2_btc_lead_hourly": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": -0.5961507179971579,
+     "sharpe": -0.5340873334507489,
+     "max_drawdown": 0.5773838064260497
+    },
+    "regression_alpha": {
+     "alpha_annual": -0.2039950756217932,
+     "t_newey_west": -1.9839344571062254,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": 0.3790620061554654,
+      "btc_vol_target": -0.23935369196018394
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.6715527657525485,
+      "benchmark": 0.3284472342474515
+     },
+     "sharpe_with": -0.04781748906741227,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 48,
+     "sharpe_std": 0.18829535700471378,
+     "probability": 0.016603048105311994,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.222826014801994,
+     "at_sharpe_0.5": 0.20104021319815654
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "F3_bear_short": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": -0.5919449869640778,
+     "sharpe": -0.2514671615002187,
+     "max_drawdown": 0.711349094123403
+    },
+    "regression_alpha": {
+     "alpha_annual": 0.012709661042297257,
+     "t_newey_west": 0.10004621406729515,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": -0.7109143670746453,
+      "btc_vol_target": 0.4389389243811023
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.581717540401502,
+      "benchmark": 0.41828245959849797
+     },
+     "sharpe_with": 0.22888417901782462,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 36,
+     "sharpe_std": 0.092484232605679,
+     "probability": 0.15795653696112694,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.0869573819792296,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   },
+   "F4_regime_switch_ls": {
+    "walk_forward": {
+     "days": 1826,
+     "total_return": -0.31248424065536295,
+     "sharpe": 0.008697123835973621,
+     "max_drawdown": 0.581575343468673
+    },
+    "regression_alpha": {
+     "alpha_annual": 0.028999793178897854,
+     "t_newey_west": 0.1788667557559268,
+     "lags": 7,
+     "days": 1826,
+     "betas": {
+      "btc_hold": -0.5513519699953198,
+      "btc_vol_target": 0.7583409184535922
+     },
+     "passes": false
+    },
+    "portfolio_gain": {
+     "weights": {
+      "strategy": 0.583302136858885,
+      "benchmark": 0.416697863141115
+     },
+     "sharpe_with": 0.34811423355082444,
+     "sharpe_benchmark": 0.45191109516028277,
+     "passes": false
+    },
+    "family_deflated": {
+     "n_trials": 36,
+     "sharpe_std": 0.05498713834056488,
+     "probability": 0.40338224727640587,
+     "threshold": 0.9,
+     "passes": false
+    },
+    "power": {
+     "at_measured": 0.05004334776511392,
+     "at_sharpe_0.5": 0.20104021319815643
+    },
+    "alpha_evidence": false,
+    "verified_alpha": false,
+    "class": "\u6ca1\u6709 alpha \u8bc1\u636e"
+   }
+  }
+ }
+}
