@@ -81,6 +81,32 @@ def test_a_friday_decision_fills_at_monday_s_open_and_pays_three_days_of_funding
     wed = tue + DAY
     assert paid[wed] == pytest.approx(paid[tue], rel=0.05) and paid[tue] < 0  # longs pay, one day at a time
     assert r["funding_days"][wed] == 1 and r["funding_days"][int(MON.value // 10**6) + 7 * DAY] == 3
+    next_mon = int(MON.value // 10**6) + 7 * DAY
+    assert paid[next_mon] == pytest.approx(3 * paid[next_mon + DAY], rel=0.05)   # the weekend's three days at once
+
+
+def test_the_funding_multiplier_scales_the_funding_alone(snaps):
+    us_dir, _ = snaps
+    df = us.daily_frame("QQQ", us_dir)
+    weights = pd.Series(0.8, index=df.index)
+    base, _ = _replay(snaps, weights)
+    double, _ = _replay(snaps, weights, funding_multiplier=2.0)
+    assert sum(double["funding"].values()) == pytest.approx(2 * sum(base["funding"].values()), rel=0.05)
+
+
+def test_a_nav_file_replays_and_fills(snaps):
+    us_dir, perps = snaps
+    df = us.daily_frame("SPY", us_dir, nav=True)
+    r = us.replay_daily("SPY", pd.Series(0.5, index=df.index), us_snapshot=us_dir, perps_snapshot=perps,
+                        perp="QQQUSDT", nav=True, starting_balance="1000")
+    assert r["fills"] and float(r["fills"][0]["qty"]) > 0
+
+
+def test_leverage_needs_a_stop_inside_the_liquidation(snaps):
+    us_dir, _ = snaps
+    df = us.daily_frame("QQQ", us_dir)
+    with pytest.raises(ValueError, match="leverage"):
+        _replay(snaps, pd.Series(0.5, index=df.index), leverage="2")
 
 
 def test_doubling_the_costs_and_the_funding_costs_more(snaps):
