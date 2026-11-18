@@ -193,6 +193,7 @@ python3 -m scripts.account_check                   # live account, read-only GET
 python3 scripts/dev/mutate.py "<tests>" <mutants.json> [jobs]   # mutation self-check; baseline must pass
 python -m lab.overlay_study --out <empty dir>      # overlay screen (development window only)
 python -m data.downloads.binance_public --start 2020-01-01   # -> new data_files/binance_public_<end>/
+python -m data.downloads.us_equity_daily --out <new dir> --tradfi <tradfi_contracts.json> --nav SPY,GLD   # US underlyings, daily
 python -m lab.paper_compare --paper-dir <paper dir> --data-dir <snapshot dir>   # paper vs research, fill by fill
 python3 -m scripts.account_check --pilot --spec <signed spec>   # the pilot's start check: what is still missing
 python3 -m scripts.live_fills --state-db <state.sqlite> --history <dir>   # pilot fills vs the backtest's assumptions
