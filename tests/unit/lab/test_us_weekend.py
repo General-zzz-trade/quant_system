@@ -27,7 +27,8 @@ def test_the_session_is_new_york_time_with_daylight_saving():
 
 def test_a_break_is_three_or_more_calendar_days_between_trading_days():
     days = [date(2026, 7, 1), date(2026, 7, 2), date(2026, 7, 6), date(2026, 7, 7), date(2026, 7, 8),
-            date(2026, 7, 9), date(2026, 7, 10), date(2026, 7, 13)]                # 3 July: a holiday
+            date(2026, 7, 9), date(2026, 7, 10), date(2026, 7, 13), date(2026, 7, 14),
+            date(2026, 7, 16)]              # 3 July: a holiday before a weekend; 15 July: a mid-week day off
     assert wk.breaks(days) == [(date(2026, 7, 2), date(2026, 7, 6)), (date(2026, 7, 10), date(2026, 7, 13))]
 
 
@@ -86,7 +87,7 @@ def test_a_perpetual_that_does_not_track_its_stock_is_no_event():
 
 
 def test_liquidity_is_the_median_daily_quote_volume_of_the_30_days_before():
-    bars = _hourly("2026-05-01", "2026-07-15")
+    bars = _hourly("2026-05-01", "2026-10-01")                  # months of bars after the event
     t = utc("2026-07-10 20:00")
     assert wk.median_daily_quote(bars, t) == pytest.approx(24e6)
     late = bars.copy()
