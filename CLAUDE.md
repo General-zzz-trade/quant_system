@@ -71,8 +71,9 @@
     start stays above 92.5 % of the capital (owner 2026-11-17); only after 4 holds may a pilot be prepared, with a
     spec that carries `after_stop: pause_then_reset` (`research/protocols/2026-11-17-lab-forward-e3.md`).
     - Its frozen spec lists ten whole-market symbols (ETH, SOL, XAU, CL, XAG, XRP, DOGE, ZEC, HYPE, 1000PEPE) and no
-      BTC; mainnet refuses any symbol but BTCUSDT and ETHUSDT (#153), so as frozen it cannot become a pilot. The looks
-      have no scheduled task; whether tracking goes on as a research record is open (owner, 2026-11-17).
+      BTC; mainnet refuses any symbol but BTCUSDT and ETHUSDT (#153), so as frozen it cannot become a pilot. Tracking
+      goes on as a research record (owner, 2026-11-17); the four looks are one-shot scheduled tasks into the main
+      session, the day after each end at 10:23 Asia/Shanghai (set 2026-11-18, after the retrospective).
 - **Closed lines:**
   - Hourly ML (`runner.offline research`): the validation-only re-check failed 2026-11-13
     (`research/results/ml_recheck_2026-11-13/`). Its code was deleted 2026-11-15 (M4); the last version is
