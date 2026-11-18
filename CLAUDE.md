@@ -117,6 +117,19 @@
     shorts most. Not to be re-tried with other rules on the development window. Its account sum let the losses of
     hundreds of contracts pass the capital (money below zero in two configurations): with far fewer slots than
     contracts, replay by slot or let the stake shrink with the account.
+- **Research standards from 2026-11-18** (owner, after the retrospective `docs/research/retrospective-2026-11-18.md`;
+  for studies registered from then on, earlier results are not re-judged):
+  - Deflated Sharpe: trials counted within the hypothesis family (every variant of the idea on that data, stopped ones
+    included; the global count is reported), threshold 0.9 (was the whole snapshot's trials and 0.5).
+  - Benchmarks: alpha is the intercept of a regression on the benchmarks (buy-and-hold, vol-target hold), annualized
+    > 0 with Newey-West t >= 2, and adding the strategy at risk parity must raise the benchmark portfolio's Sharpe.
+    A strategy that only manages risk (beta with sizing) is its own class, judged on drawdown and risk-adjusted
+    return, and is not called alpha.
+  - Power: a plan states the minimum detectable effect and the sample it needs; below 80 % power it is not run as a
+    decision study but frozen and accumulated on forward data. Forward tests are judged at a preset sample size with
+    a sequential test; a 4-week look is a sanity check only.
+  - Focus until 2026-12-02: US earnings drift, a portfolio of weak signals, the calibration pilot; and closing the
+    forward-test gaps (scheduled E3 looks, the panel models' look runner). New questions wait in a backlog.
 - **Research discipline in code:**
   - `research/trials.jsonl` (`lab/trials.py`) records every configuration evaluated on real
     data; gates use the deflated Sharpe over the whole family. The directional family holds 83 trials.
