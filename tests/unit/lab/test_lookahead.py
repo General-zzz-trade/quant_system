@@ -343,6 +343,10 @@ OTHER_MODULES = {
                          "checked here) through the shared broker with the runtime's stop, pause and latches, and "
                          "picks a setting per year from the years before it; no feature of its own "
                          "(test_pilot_params)"),
+    "lab.daily_predict": ("the daily BTC/ETH report (owner 2026-11-18): the frozen panel models on the newest closed "
+                          "day through research/results/panel_2026-11-17/run.py's build_panel (lab.panel_study's "
+                          "features, checked here) over a feed cut at that day; no feature of its own "
+                          "(test_daily_predict)"),
     "lab.um_monthly": ("the lab's monthly re-selection: periods from a snapshot's end date and the judge's run; no "
                        "feature of its own (test_um_monthly); the ideas it runs go through lab.um_judge's final check"),
     "lab.um_lab": ("the research lab's harness: snapshot loading, replays through the shared broker, portfolio "
