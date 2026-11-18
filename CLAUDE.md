@@ -157,7 +157,8 @@
   - The panel study (`research/results/panel_2026-11-17/`, development window): one model pooled over the 100 most
     traded crypto perps of each day predicts a trend coming within 14 days (AUC 0.69) and 7-day volatility, not
     direction. Its models are frozen (`forward_spec.json`) and judged at 6 monthly looks, 2027-01-01 to 2027-06-01
-    (decision 2027-06-01; `research/protocols/2026-11-17-panel-forward.md`); the look runner is still to be written.
+    (decision 2027-06-01; `research/protocols/2026-11-17-panel-forward.md`); the look runner is `lab/panel_forward.py`
+    (2026-11-18), the first look a one-shot task on 2027-01-09.
     A model that holds is only a component: no strategy uses it yet.
   - Its first use, the volatility-expansion breakout study, failed 2026-11-18 (see Closed lines).
   - Daily BTC/ETH prediction report (owner 2026-11-18: "目前做改成做预测机器", "我负责做下单",
@@ -224,6 +225,7 @@ python3 -m scripts.live_fills --state-db <db> --history <dir> --events <events.j
 python -m lab.um_monthly plan|screen|line|final --snapshot <dir> --run research/lab/runs/<date>   # monthly re-selection
 python -m lab.um_forward download|look --frozen <file> --study <name> --end <date> ...   # a champion's weekly look
 python -m lab.portfolio_forward --spec <forward_spec.json> --end <date> --data <monthly snapshot> --out <new dir>   # weak portfolio's monthly look
+python -m lab.panel_forward --end <date> --data <monthly snapshot> --out <new dir>   # panel models' monthly look (reads public exchangeInfo)
 python3 -m scripts.draft_strategy_spec --run <run dir> --snapshot <dir>   # a champion's spec draft (passed false)
 python -m data.downloads.perps_feed update --feed /root/lab_cache/prediction_feed/feed   # public data, no key
 python -m lab.daily_predict --feed /root/lab_cache/prediction_feed/feed --log /root/lab_cache/prediction_feed/predictions.jsonl   # the daily BTC/ETH report (updates the feed first)
