@@ -1,0 +1,183 @@
+{
+ "code_commit": "19ae5bc9bf4705856d2c07a56aa3b0fe3ffa4ace",
+ "counts": {
+  "skipped_not_a_trading_day": 45,
+  "excluded_big_move": 1,
+  "excluded_dkng": 0
+ },
+ "configs": {
+  "surprise_h5": {
+   "base": {
+    "events": 1417,
+    "weeks": 221,
+    "mean_net": 0.002080684794543934,
+    "median_net": 0.0003541213882620742,
+    "hit_rate": 0.5017642907551164,
+    "t_week": 0.2089262203032945,
+    "weekly_mean_sd": 0.03381505475899887,
+    "top_ticker": "CRWD",
+    "mean_without_top": 0.0016893501130156882,
+    "longs": 1097,
+    "shorts": 320
+   },
+   "stress": {
+    "events": 1417,
+    "weeks": 221,
+    "mean_net": -8.631134630870328e-05,
+    "median_net": -0.0019114378789519826,
+    "hit_rate": 0.4827099505998589,
+    "t_week": -0.7346160764095105,
+    "weekly_mean_sd": 0.033778024007774604,
+    "top_ticker": "CRWD",
+    "mean_without_top": -0.00047340021321706473,
+    "longs": 1097,
+    "shorts": 320
+   },
+   "portfolio": {
+    "days": 1826,
+    "total_return": -0.04237535875898002,
+    "cagr": -0.00861778815380354,
+    "sharpe": 0.054966560911712925,
+    "max_drawdown": 0.47270495809082436,
+    "worst_month": -0.13720262249936022,
+    "worst_month_label": "2018-03",
+    "longest_losing_days": 5
+   },
+   "overlaps_skipped": 0
+  },
+  "surprise_h20": {
+   "base": {
+    "events": 1417,
+    "weeks": 221,
+    "mean_net": 0.00574851329246579,
+    "median_net": 0.0036388186307281245,
+    "hit_rate": 0.5215243472124206,
+    "t_week": 2.2611548967950377,
+    "weekly_mean_sd": 0.07073558691717366,
+    "top_ticker": "TSLA",
+    "mean_without_top": 0.004762575591738095,
+    "longs": 1097,
+    "shorts": 320
+   },
+   "stress": {
+    "events": 1417,
+    "weeks": 221,
+    "mean_net": 0.0013340562264212716,
+    "median_net": -0.00043013392080515356,
+    "hit_rate": 0.49611856033874385,
+    "t_week": 1.3758260254107186,
+    "weekly_mean_sd": 0.07039649574331071,
+    "top_ticker": "TSLA",
+    "mean_without_top": 0.00038629496885417926,
+    "longs": 1097,
+    "shorts": 320
+   },
+   "portfolio": {
+    "days": 1826,
+    "total_return": 0.6110673943657019,
+    "cagr": 0.10001867109330398,
+    "sharpe": 0.7573052930097253,
+    "max_drawdown": 0.19796736156400263,
+    "worst_month": -0.10175441687582365,
+    "worst_month_label": "2018-10",
+    "longest_losing_days": 4
+   },
+   "overlaps_skipped": 0
+  },
+  "reaction_h5": {
+   "base": {
+    "events": 1203,
+    "weeks": 223,
+    "mean_net": 0.0014143057612336595,
+    "median_net": 0.0012759451263302246,
+    "hit_rate": 0.516209476309227,
+    "t_week": -0.30919605140899653,
+    "weekly_mean_sd": 0.04116357740235117,
+    "top_ticker": "AAOI",
+    "mean_without_top": 0.001022535165464828,
+    "longs": 618,
+    "shorts": 585
+   },
+   "stress": {
+    "events": 1203,
+    "weeks": 223,
+    "mean_net": -0.0005824575122109567,
+    "median_net": -0.00015020658538078546,
+    "hit_rate": 0.49542809642560265,
+    "t_week": -1.0022983221040953,
+    "weekly_mean_sd": 0.04101350650636641,
+    "top_ticker": "AAOI",
+    "mean_without_top": -0.0009858966177124639,
+    "longs": 618,
+    "shorts": 585
+   },
+   "portfolio": {
+    "days": 1826,
+    "total_return": -0.3282980425127764,
+    "cagr": -0.0764631009250718,
+    "sharpe": -0.20762659356923774,
+    "max_drawdown": 0.6501673030514108,
+    "worst_month": -0.30407972479394796,
+    "worst_month_label": "2020-09",
+    "longest_losing_days": 5
+   },
+   "overlaps_skipped": 0
+  },
+  "reaction_h20": {
+   "base": {
+    "events": 1203,
+    "weeks": 223,
+    "mean_net": 0.0018705172529492802,
+    "median_net": -0.0016166578747962568,
+    "hit_rate": 0.49044056525353286,
+    "t_week": -1.5352511406009401,
+    "weekly_mean_sd": 0.09129134690231208,
+    "top_ticker": "MRNA",
+    "mean_without_top": 0.000839841588202878,
+    "longs": 618,
+    "shorts": 585
+   },
+   "stress": {
+    "events": 1203,
+    "weeks": 223,
+    "mean_net": -0.0021871192678826544,
+    "median_net": -0.0060336327209331575,
+    "hit_rate": 0.46633416458852867,
+    "t_week": -2.1512977886207714,
+    "weekly_mean_sd": 0.09075802613792523,
+    "top_ticker": "MRNA",
+    "mean_without_top": -0.0031821333161967556,
+    "longs": 618,
+    "shorts": 585
+   },
+   "portfolio": {
+    "days": 1826,
+    "total_return": -0.3172505728508165,
+    "cagr": -0.07344666820179024,
+    "sharpe": -0.5422514393009424,
+    "max_drawdown": 0.33525129104887674,
+    "worst_month": -0.07857281126688587,
+    "worst_month_label": "2017-04",
+    "longest_losing_days": 5
+   },
+   "overlaps_skipped": 0
+  }
+ },
+ "family_sharpes": {
+  "surprise_h5": 0.054966560911712925,
+  "surprise_h20": 0.7573052930097253,
+  "reaction_h5": -0.20762659356923774,
+  "reaction_h20": -0.5422514393009424
+ },
+ "chosen": "surprise_h20",
+ "power": {
+  "confirm_weeks_assumed": 133,
+  "weekly_mean_sd": 0.07073558691717366,
+  "literature_effect": 0.005,
+  "power_at_literature": 0.12890981067444032,
+  "measured_effect": 0.00574851329246579,
+  "power_at_measured": 0.1550980196108717,
+  "weeks_needed_at_literature": 1571
+ },
+ "confirm_runs": false
+}

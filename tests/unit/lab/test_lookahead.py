@@ -349,6 +349,8 @@ OTHER_MODULES = {
                           "(test_daily_predict)"),
     "lab.gates": ("the research gates of 2026-11-18: statistics of finished return series (regression alpha, "
                   "portfolio gain, deflated Sharpe, power, sequential test); no feature (test_gates)"),
+    "lab.us_earnings": ("earnings drift: an event's signal uses the window up to the close it decides at (the day "
+                        "after the report) and the calendar row; the trade fills at the next open (test_us_earnings)"),
     "lab.us_weekend": ("the weekend gap of the US-stock perpetuals: an event decides on hourly closes up to its "
                        "decision time and fills at the next bar's open; the later prices only settle it "
                        "(test_us_weekend)"),
