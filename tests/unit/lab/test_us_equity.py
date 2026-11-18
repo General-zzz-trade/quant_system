@@ -189,3 +189,14 @@ def test_an_index_replays_at_its_perpetual_s_costs(snaps):
 
 def test_the_nasdaq_composite_carries_qqq_s_costs():
     assert us.perpetual("NASDAQCOM") == "QQQUSDT" and us.perpetual("GLD") == "XAUUSDT"
+
+
+def test_a_frame_read_once_replays_as_the_file_does(snaps):
+    """The earnings study replays each stock many times: it passes the frame instead of reading the file each time."""
+    us_dir, perps = snaps
+    df = us.daily_frame("QQQ", us_dir)
+    weights = pd.Series(0.6, index=df.index)
+    from_file, _ = _replay(snaps, weights)
+    given = us.replay_daily("QQQ", weights, us_snapshot=us_dir, perps_snapshot=perps, perp="QQQUSDT",
+                            starting_balance="1000", frame=df)
+    assert given["curve"].equals(from_file["curve"])

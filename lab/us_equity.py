@@ -89,7 +89,7 @@ def replay_daily(ticker: str, weights: pd.Series, *, us_snapshot: Path = US_SNAP
                  start: int | None = None, end: int | None = None, nav: bool = False, cost_multiplier: int = 1,
                  funding_multiplier: float = 1.0, stop_pct: str = "0", pause_ms: int | None = None,
                  reenter_after_stop: str = "pause", leverage: str = "1",
-                 daily_rate: float | None = None, index: bool = False) -> dict:
+                 daily_rate: float | None = None, index: bool = False, frame: pd.DataFrame | None = None) -> dict:
     """Target weights (decided at each day's close, index = the day's midnight UTC) through the shared broker.
     Returns the equity at each bar's close (``curve``), the fills, the funding paid per bar (open time -> cashflow) and
     the calendar days each bar's funding covered. ``daily_rate`` replaces the perpetual's measured rate (a study's
@@ -102,7 +102,7 @@ def replay_daily(ticker: str, weights: pd.Series, *, us_snapshot: Path = US_SNAP
     exchange = um_lab.exchange_leverage(stop_pct) if lev != 1 else 0
     if lev != 1 and (not 1 <= lev <= MAX_TOTAL_LEVERAGE or D(stop_pct) <= 0 or not lev <= exchange):
         raise ValueError(f"a replay at leverage {leverage} needs a stop that allows it (stop {stop_pct}: {exchange}x)")
-    df = daily_frame(ticker, us_snapshot, nav=nav, index=index)
+    df = frame if frame is not None else daily_frame(ticker, us_snapshot, nav=nav, index=index)
     first = int(df.index[0]) if start is None else start
     bars = [Bar(int(t), D(repr(r.open)), D(repr(r.high)), D(repr(r.low)), D(repr(r.close)), D(repr(r.volume)),
                 interval_ms=DAY) for t, r in zip(df.index, df.itertuples())]
