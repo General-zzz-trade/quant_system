@@ -1,0 +1,62 @@
+[
+ [
+  "earnings: forward guard off",
+  "data/downloads/us_earnings.py",
+  "    if end > FORWARD_GUARD:",
+  "    if False:"
+ ],
+ [
+  "earnings: directory overwritten",
+  "data/downloads/us_earnings.py",
+  "    if out.exists() and any(out.iterdir()):",
+  "    if False:"
+ ],
+ [
+  "earnings: date not kept",
+  "data/downloads/us_earnings.py",
+  "return [{\"date\": day.isoformat(), **",
+  "return [{**"
+ ],
+ [
+  "fees: forward cut off",
+  "data/downloads/defillama_fees.py",
+  "        if day >= end:\n            dropped += 1\n            continue",
+  "        if False:\n            continue"
+ ],
+ [
+  "fees: 1000 prefix kept",
+  "data/downloads/defillama_fees.py",
+  "re.sub(r\"^1000+\", \"\", s[:-4])",
+  "s[:-4]"
+ ],
+ [
+  "fees: today's mcap kept",
+  "data/downloads/defillama_fees.py",
+  "KEEP = (\"name\", \"slug\", \"symbol\", \"gecko_id\", \"category\", \"parentProtocol\")",
+  "KEEP = (\"name\", \"slug\", \"symbol\", \"gecko_id\", \"category\", \"parentProtocol\", \"mcap\")"
+ ],
+ [
+  "fees: a failed series aborts",
+  "data/downloads/defillama_fees.py",
+  "                except Exception as exc:             # no adapter for this protocol: recorded, not guessed",
+  "                except KeyError as exc:"
+ ],
+ [
+  "fees: symbols not upper-cased",
+  "data/downloads/defillama_fees.py",
+  "        symbol = str(p.get(\"symbol\") or \"\").upper()\n        if symbol in wanted",
+  "        symbol = str(p.get(\"symbol\") or \"\")\n        if symbol in wanted"
+ ],
+ [
+  "fees: ambiguous symbols kept",
+  "data/downloads/defillama_fees.py",
+  "        if len(coins) > 1:",
+  "        if False:"
+ ],
+ [
+  "fees: children asked one by one",
+  "data/downloads/defillama_fees.py",
+  "str(p[\"parentProtocol\"]).removeprefix(\"parent#\") if p.get(\"parentProtocol\")",
+  "p[\"slug\"] if p.get(\"parentProtocol\")"
+ ]
+]
