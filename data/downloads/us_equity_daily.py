@@ -15,6 +15,8 @@ Sources (public, no account, no key; one request a second):
   continuous across its 10-for-1 split of 2024-06-10), not for dividends. A ticker is asked as a stock, then as an ETF.
 - State Street's SPDR NAV history (``ssga.com``): SPY's and GLD's daily net asset value since 2003 and 2004; NAV only,
   no distributions, no high or low.
+- FRED (``fred.stlouisfed.org``, ``--fred``): index levels at the close, e.g. the Nasdaq Composite since 1971-02-05
+  (added 2026-11-18 for the US trend study's long check).
 
 The tickers are the EQUITY underlyings of the TradFi list recorded on 2026-11-17 (``tradfi_contracts.json``): the
 Binance symbol without "USDT". A ticker Nasdaq does not know (a Binance name that is not the US ticker) is listed under
@@ -47,6 +49,7 @@ FORWARD_GUARD = date(2026, 11, 13)
 NASDAQ = ("https://api.nasdaq.com/api/quote/{ticker}/historical?assetclass={kind}&fromdate={start}&todate={last}"
           "&limit=9999")
 SPDR_NAV = "https://www.ssga.com/us/en/intermediary/library-content/products/fund-data/etfs/us/navhist-us-en-{fund}.xlsx"
+FRED = "https://fred.stlouisfed.org/graph/fredgraph.csv?id={series}"
 ASSET_CLASSES = ("stocks", "etf")
 NASDAQ_YEARS = 10
 _SHEET = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
@@ -118,6 +121,23 @@ def parse_nav(payload: bytes, end: date) -> tuple[list[dict], int]:
     return rows, dropped
 
 
+def parse_fred(payload: bytes, end: date) -> tuple[list[dict], int]:
+    """A FRED series' CSV (date, value; "." or empty on a day without a value): (rows before ``end``, oldest first;
+    how many on or after it)."""
+    rows, dropped = [], 0
+    for line in payload.decode().splitlines()[1:]:
+        day_text, _, value = line.partition(",")
+        if not _number(value):
+            continue
+        day = date.fromisoformat(day_text)
+        if day >= end:
+            dropped += 1
+            continue
+        rows.append({"date": day.isoformat(), "close": value.strip()})
+    rows.sort(key=lambda r: r["date"])
+    return rows, dropped
+
+
 def tickers(tradfi: Path) -> list[str]:
     """The US-equity underlyings of the recorded TradFi list (the Binance symbol without "USDT")."""
     underlying = json.loads(Path(tradfi).read_text())["underlying"]
@@ -139,7 +159,8 @@ def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def snapshot(out: Path, symbols: Sequence[str], *, nav: Sequence[str], end: date = FORWARD_GUARD,
+def snapshot(out: Path, symbols: Sequence[str], *, nav: Sequence[str], fred: Sequence[str] = (),
+             end: date = FORWARD_GUARD,
              fetch: Callable[[str], bytes] | None = None, pause: float = 1.0,
              now: Callable[[], str] = _now) -> dict[str, Any]:
     """Download into the new directory ``out`` and write its manifest; returns the manifest."""
@@ -173,11 +194,18 @@ def snapshot(out: Path, symbols: Sequence[str], *, nav: Sequence[str], end: date
         time.sleep(pause)
         files[f"{fund.upper()}_nav.csv"] = {**_write(out / f"{fund.upper()}_nav.csv", rows), "source": "spdr_nav",
                                             "dropped_on_or_after_end": dropped}
+    for series in fred:
+        rows, dropped = parse_fred(get(FRED.format(series=series)), end)
+        time.sleep(pause)
+        files[f"{series}_index.csv"] = {**_write(out / f"{series}_index.csv", rows), "source": "fred",
+                                        "dropped_on_or_after_end": dropped}
     manifest = {"what": "daily history of the US stocks and ETFs behind Binance's US-equity perpetuals",
                 "fetched_at": now(), "end_exclusive": end.isoformat(),
-                "sources": {"nasdaq": NASDAQ.split("?")[0], "spdr_nav": SPDR_NAV},
+                "sources": {k: v for k, v in (("nasdaq", NASDAQ.split("?")[0]), ("spdr_nav", SPDR_NAV), ("fred", FRED))
+                            if any(f["source"] == k for f in files.values())},
                 "notes": {"nasdaq": f"last {NASDAQ_YEARS} years; split-adjusted by Nasdaq, not dividend-adjusted",
-                          "spdr_nav": "net asset value only; no distributions, no open/high/low"},
+                          "spdr_nav": "net asset value only; no distributions, no open/high/low",
+                          "fred": "index level at the close only (e.g. NASDAQCOM, a price index without dividends)"},
                 "files": files, "missing": missing}
     (out / "manifest.json").write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n")
     return manifest
@@ -189,11 +217,13 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--tradfi", type=Path, help="tradfi_contracts.json: its EQUITY underlyings")
     parser.add_argument("--symbols", default="", help="comma-separated US tickers, besides --tradfi")
     parser.add_argument("--nav", default="SPY,GLD", help="SPDR funds whose NAV history to add")
+    parser.add_argument("--fred", default="", help="FRED series (index levels) to add, e.g. NASDAQCOM")
     parser.add_argument("--end", type=date.fromisoformat, default=FORWARD_GUARD)
     args = parser.parse_args(argv)
     symbols = sorted(set((tickers(args.tradfi) if args.tradfi else [])
                          + [s.strip().upper() for s in args.symbols.split(",") if s.strip()]))
-    manifest = snapshot(args.out, symbols, nav=[f for f in args.nav.split(",") if f], end=args.end)
+    manifest = snapshot(args.out, symbols, nav=[f for f in args.nav.split(",") if f],
+                        fred=[f for f in args.fred.split(",") if f], end=args.end)
     print(f"{len(manifest['files'])} files written to {args.out}; missing: {len(manifest['missing'])}")
 
 
@@ -201,4 +231,4 @@ if __name__ == "__main__":
     main()
 
 
-__all__ = ["FORWARD_GUARD", "parse_nasdaq", "parse_nav", "snapshot", "tickers"]
+__all__ = ["FORWARD_GUARD", "parse_fred", "parse_nasdaq", "parse_nav", "snapshot", "tickers"]
