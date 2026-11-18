@@ -1,0 +1,11 @@
+[["no Newey-West lags", "lab/gates.py", "    lags = int(4 * (len(y) / 100.0) ** (2.0 / 9.0)) if lags is None else lags", "    lags = 0"],
+ ["alpha not annualized", "lab/gates.py", "    alpha = float(coef[0] * YEAR)", "    alpha = float(coef[0])"],
+ ["alpha passes without its t", "lab/gates.py", "\"passes\": alpha > 0 and t >= 2.0}", "\"passes\": alpha > 0}"],
+ ["equal weights, not risk parity", "lab/gates.py", "    inv = 1.0 / data.std(ddof=1)", "    inv = data.std(ddof=1) * 0 + 1.0"],
+ ["portfolio passes when equal", "lab/gates.py", "\"passes\": with_ > alone}", "\"passes\": with_ >= alone - 1}"],
+ ["deflated threshold 0.5", "lab/gates.py", "DEFLATED_THRESHOLD = 0.9", "DEFLATED_THRESHOLD = 0.5"],
+ ["family size ignored", "lab/gates.py", "    p = deflated_sharpe_probability_k(daily, std, n)", "    p = deflated_sharpe_probability_k(daily, std, 2)"],
+ ["one-sided power", "lab/gates.py", "    c = norm.ppf(1 - alpha / 2)", "    c = norm.ppf(1 - alpha)"],
+ ["sample size without power", "lab/gates.py", "    return float(norm.ppf(1 - alpha / 2) + norm.ppf(power_))", "    return float(norm.ppf(1 - alpha / 2))"],
+ ["sequential drift sign", "lab/gates.py", "        llr += (effect * float(x) - effect * effect / 2.0) / (sd * sd)", "        llr += (effect * float(x) + effect * effect / 2.0) / (sd * sd)"],
+ ["sequential never stops for no effect", "lab/gates.py", "        if llr <= lower:", "        if False:"]]
