@@ -1,0 +1,164 @@
+{
+ "code_commit": "4b533b3be283ec4eae341d11c1ad4ecf7dd4ea63",
+ "screen": {
+  "events_selection": 587,
+  "weekends_selection": 28,
+  "tickers": 52,
+  "configs": {
+   "fade1_open+1h": {
+    "base": {
+     "events": 147,
+     "weekends_traded": 26,
+     "mean_net": 0.01229196477901321,
+     "median_net": 0.005294915451913748,
+     "hit_rate": 0.5714285714285714,
+     "t_weekend": 0.8490519426759326,
+     "weekly_sharpe": 1.157523075670385,
+     "mean_weekend": 0.0031323625010516156
+    },
+    "stress": {
+     "events": 146,
+     "weekends_traded": 26,
+     "mean_net": 0.009775628445844904,
+     "median_net": 0.003584789159480939,
+     "hit_rate": 0.5547945205479452,
+     "t_weekend": 0.3774760685668491,
+     "weekly_sharpe": 0.5150426937566268,
+     "mean_weekend": 0.0013644826937904094
+    }
+   },
+   "fade1_close": {
+    "base": {
+     "events": 147,
+     "weekends_traded": 26,
+     "mean_net": 0.01116389956555192,
+     "median_net": 0.005492582836927409,
+     "hit_rate": 0.5918367346938775,
+     "t_weekend": 1.4081716130684465,
+     "weekly_sharpe": 1.916333041931184,
+     "mean_weekend": 0.006196264313697624
+    },
+    "stress": {
+     "events": 146,
+     "weekends_traded": 26,
+     "mean_net": 0.00887337245252375,
+     "median_net": 0.003586261828127055,
+     "hit_rate": 0.5547945205479452,
+     "t_weekend": 1.0377455610258315,
+     "weekly_sharpe": 1.4140538920143537,
+     "mean_weekend": 0.004526699427092113
+    }
+   },
+   "fade2_open+1h": {
+    "base": {
+     "events": 80,
+     "weekends_traded": 22,
+     "mean_net": 0.019453577380062842,
+     "median_net": 0.009430876025079353,
+     "hit_rate": 0.6625,
+     "t_weekend": 1.473678823533013,
+     "weekly_sharpe": 1.9965054990743771,
+     "mean_weekend": 0.008555442340588398
+    },
+    "stress": {
+     "events": 79,
+     "weekends_traded": 22,
+     "mean_net": 0.01624877369828113,
+     "median_net": 0.00778238517670651,
+     "hit_rate": 0.6455696202531646,
+     "t_weekend": 1.1774185238597599,
+     "weekly_sharpe": 1.6014295012747415,
+     "mean_weekend": 0.006693852526877524
+    }
+   },
+   "fade2_close": {
+    "base": {
+     "events": 80,
+     "weekends_traded": 22,
+     "mean_net": 0.018332919098053686,
+     "median_net": 0.01049884873663303,
+     "hit_rate": 0.675,
+     "t_weekend": 1.2844913232337247,
+     "weekly_sharpe": 1.74474899020666,
+     "mean_weekend": 0.008926934436562397
+    },
+    "stress": {
+     "events": 79,
+     "weekends_traded": 22,
+     "mean_net": 0.015511890306764227,
+     "median_net": 0.007893751914882835,
+     "hit_rate": 0.6455696202531646,
+     "t_weekend": 1.0515542750056617,
+     "weekly_sharpe": 1.432262049431708,
+     "mean_weekend": 0.007246369761731819
+    }
+   },
+   "fade3_open+1h": {
+    "base": {
+     "events": 42,
+     "weekends_traded": 14,
+     "mean_net": 0.018832703844530882,
+     "median_net": 0.0027084324599970953,
+     "hit_rate": 0.5238095238095238,
+     "t_weekend": 1.6106515822095884,
+     "weekly_sharpe": 2.132883712330466,
+     "mean_weekend": 0.014691392963045736
+    },
+    "stress": {
+     "events": 41,
+     "weekends_traded": 14,
+     "mean_net": 0.01411927297044371,
+     "median_net": 0.0005937847572604587,
+     "hit_rate": 0.5121951219512195,
+     "t_weekend": 1.423687185991834,
+     "weekly_sharpe": 1.9042839061732404,
+     "mean_weekend": 0.012486368336445505
+    }
+   },
+   "fade3_close": {
+    "base": {
+     "events": 42,
+     "weekends_traded": 14,
+     "mean_net": 0.018297791338523363,
+     "median_net": 0.0039422404629127685,
+     "hit_rate": 0.5714285714285714,
+     "t_weekend": 1.4971108225838958,
+     "weekly_sharpe": 1.9948756634049587,
+     "mean_weekend": 0.01639354776312172
+    },
+    "stress": {
+     "events": 41,
+     "weekends_traded": 14,
+     "mean_net": 0.014239455931767087,
+     "median_net": 0.0017547782621578501,
+     "hit_rate": 0.5365853658536586,
+     "t_weekend": 1.3373910340063726,
+     "weekly_sharpe": 1.7965094100520145,
+     "mean_weekend": 0.01446688182638138
+    }
+   }
+  },
+  "chosen": "fade3_open+1h",
+  "permutation_p": 0.06969303069693031,
+  "top_ticker": "SOXL",
+  "mean_without_top_ticker": 0.016043617322362837,
+  "halves_mean_net": [
+   0.019728326145281843,
+   0.018787922729493332
+  ],
+  "report_only": {
+   "corr_weekend_move_vs_stock_gap": 0.9501656115241746,
+   "events_for_corr": 587
+  },
+  "checks": {
+   "mean_net_above_0": true,
+   "t_at_least_2": false,
+   "permutation_p_at_most_0.05_over_6": false,
+   "stress_mean_above_0": true,
+   "at_least_100_events_15_weekends": false,
+   "without_top_ticker_above_0": true,
+   "both_halves_above_0": true
+  },
+  "survives": false
+ }
+}
