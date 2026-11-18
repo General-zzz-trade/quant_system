@@ -1,11 +1,92 @@
-[["no daylight saving", "lab/us_weekend.py", "NEW_YORK = ZoneInfo(\"America/New_York\")", "NEW_YORK = ZoneInfo(\"EST\")"],
- ["two-day gaps count as breaks", "lab/us_weekend.py", "if (b - a).days >= 3]", "if (b - a).days >= 2]"],
- ["decision at the open itself", "lab/us_weekend.py", "\"decision\": (open1 - 30 * 60_000) // H * H", "\"decision\": -(-open1 // H) * H"],
- ["exit an hour early", "lab/us_weekend.py", "exit_at = -(-(open1 + H) // H) * H", "exit_at = -(-open1 // H) * H"],
- ["the decision bar's close used for the entry", "lab/us_weekend.py", "\"entry\": float(bars.at[t[\"decision\"], \"open\"])", "\"entry\": float(bars.at[t[\"decision\"] - H, \"close\"])"],
- ["follow instead of fade", "lab/us_weekend.py", "    side = -1.0 if e[\"move\"] > 0 else 1.0", "    side = 1.0 if e[\"move\"] > 0 else -1.0"],
- ["costs on one side only", "lab/us_weekend.py", "gross - 2 * cost_bp / 1e4", "gross - cost_bp / 1e4"],
- ["funding sign flipped", "lab/us_weekend.py", "- side * e[\"funding\"] * funding_multiplier", "+ side * e[\"funding\"] * funding_multiplier"],
- ["funding settled at the start counted", "lab/us_weekend.py", "inside = funding[(funding.index > start) & (funding.index <= end)]", "inside = funding[(funding.index >= start) & (funding.index <= end)]"],
- ["liquidity reads the future", "lab/us_weekend.py", "window = bars[(bars.index >= at - days * DAY) & (bars.index < at)]", "window = bars[(bars.index >= at - days * DAY)]"],
- ["tracking never checked", "lab/us_weekend.py", "    return stock_close > 0 and abs(perp_price / stock_close - 1.0) <= tolerance", "    return stock_close > 0"]]
+[
+ [
+  "no daylight saving",
+  "lab/us_weekend.py",
+  "NEW_YORK = ZoneInfo(\"America/New_York\")",
+  "NEW_YORK = ZoneInfo(\"EST\")"
+ ],
+ [
+  "two-day gaps count as breaks",
+  "lab/us_weekend.py",
+  "if (b - a).days >= 3]",
+  "if (b - a).days >= 2]"
+ ],
+ [
+  "decision at the open itself",
+  "lab/us_weekend.py",
+  "\"decision\": (open1 - 30 * 60_000) // H * H",
+  "\"decision\": -(-open1 // H) * H"
+ ],
+ [
+  "exit an hour early",
+  "lab/us_weekend.py",
+  "exit_at = -(-(open1 + H) // H) * H",
+  "exit_at = -(-open1 // H) * H"
+ ],
+ [
+  "the decision bar's close used for the entry",
+  "lab/us_weekend.py",
+  "\"entry\": float(bars.at[t[\"decision\"], \"open\"])",
+  "\"entry\": float(bars.at[t[\"decision\"] - H, \"close\"])"
+ ],
+ [
+  "funding settled at the start counted",
+  "lab/us_weekend.py",
+  "inside = funding[(funding.index > start) & (funding.index <= end)]",
+  "inside = funding[(funding.index >= start) & (funding.index <= end)]"
+ ],
+ [
+  "liquidity reads the future",
+  "lab/us_weekend.py",
+  "window = bars[(bars.index >= at - days * DAY) & (bars.index < at)]",
+  "window = bars[(bars.index >= at - days * DAY)]"
+ ],
+ [
+  "tracking never checked",
+  "lab/us_weekend.py",
+  "    return stock_close > 0 and abs(perp_price / stock_close - 1.0) <= tolerance",
+  "    return stock_close > 0"
+ ],
+ [
+  "follow instead of fade",
+  "lab/us_weekend.py",
+  "\"target\": [fade_side(e[\"move\"]), 0.0]",
+  "\"target\": [-fade_side(e[\"move\"]), 0.0]"
+ ],
+ [
+  "never closed",
+  "lab/us_weekend.py",
+  "\"target\": [fade_side(e[\"move\"]), 0.0]",
+  "\"target\": [fade_side(e[\"move\"]), fade_side(e[\"move\"])]"
+ ],
+ [
+  "funding multiplier ignored",
+  "lab/us_weekend.py",
+  "(D(repr(float(rate) * funding_multiplier)),)",
+  "(D(repr(float(rate))),)"
+ ],
+ [
+  "cost multiplier not passed",
+  "lab/us_weekend.py",
+  "rules=rules, cost_multiplier=cost_multiplier, starting_balance=capital)",
+  "rules=rules, starting_balance=capital)"
+ ],
+ [
+  "per unit of capital, not of notional",
+  "lab/us_weekend.py",
+  "    return (float(result.curve[\"equity\"].iloc[-1]) - float(capital)) / notional",
+  "    return (float(result.curve[\"equity\"].iloc[-1]) - float(capital)) / float(capital)"
+ ],
+ [
+  "threshold exclusive",
+  "lab/us_weekend.py",
+  "return e[\"move\"] != 0 and abs(e[\"move\"]) >= threshold",
+  "return e[\"move\"] != 0 and abs(e[\"move\"]) > threshold"
+ ],
+ [
+  "a zero move traded",
+  "lab/us_weekend.py",
+  "return e[\"move\"] != 0 and abs(e[\"move\"]) >= threshold",
+  "return abs(e[\"move\"]) >= threshold"
+ ]
+]
