@@ -1,0 +1,98 @@
+[
+ [
+  "no registration check",
+  "lab/portfolio_forward.py",
+  "registered = forward.registered_look(study, digest, end, path=looks, now_ms=now_ms)",
+  "registered = {\"registered\": \"x\"}"
+ ],
+ [
+  "a spec marked passed accepted",
+  "lab/portfolio_forward.py",
+  "if spec.get(\"passed\") is not False or not spec.get(\"members\")",
+  "if not spec.get(\"members\")"
+ ],
+ [
+  "any forward start accepted",
+  "lab/portfolio_forward.py",
+  "if forward.day_ms(spec[\"forward_start\"]) != forward.FORWARD_START:",
+  "if False:"
+ ],
+ [
+  "any number of looks accepted",
+  "lab/portfolio_forward.py",
+  "    if len(ends) != max_looks:",
+  "    if False:"
+ ],
+ [
+  "look numbers from 0",
+  "lab/portfolio_forward.py",
+  "return ends.index(end) + 1",
+  "return ends.index(end)"
+ ],
+ [
+  "a look evaluated twice",
+  "lab/portfolio_forward.py",
+  "if out.exists() and any(out.iterdir()):",
+  "if False:"
+ ],
+ [
+  "missing hours accepted",
+  "lab/portfolio_forward.py",
+  "        if len(missing):",
+  "        if False:"
+ ],
+ [
+  "a member not ready accepted",
+  "lab/portfolio_forward.py",
+  " or not bool(h[\"ready\"].iloc[-1]):",
+  ":"
+ ],
+ [
+  "no conclusion at the first look",
+  "lab/portfolio_forward.py",
+  "if decision == \"continue\" and number == int(seq[\"max_looks\"]):",
+  "if decision == \"continue\" and number == 1:"
+ ],
+ [
+  "never no conclusion",
+  "lab/portfolio_forward.py",
+  "        decision = \"no conclusion\"",
+  "        pass"
+ ],
+ [
+  "effect on 252 days",
+  "lab/portfolio_forward.py",
+  "effect = float(seq[\"effect_sharpe\"]) / math.sqrt(365) * sd",
+  "effect = float(seq[\"effect_sharpe\"]) / math.sqrt(252) * sd"
+ ],
+ [
+  "rebalanced daily",
+  "lab/portfolio_forward.py",
+  "daily = portfolio.combine(dailies)",
+  "daily = sum(dailies) / len(dailies)"
+ ],
+ [
+  "the crossing day one late",
+  "lab/portfolio_forward.py",
+  "_date(start + (test[\"at\"] - 1) * DAY)",
+  "_date(start + test[\"at\"] * DAY)"
+ ],
+ [
+  "a day past the end replayed",
+  "lab/portfolio_forward.py",
+  "start, stop_at = forward.FORWARD_START, forward.day_ms(end)",
+  "start, stop_at = forward.FORWARD_START, forward.day_ms(end) + DAY"
+ ],
+ [
+  "the frozen sd ignored",
+  "lab/portfolio_forward.py",
+  "    sd = float(seq[\"daily_sd\"])",
+  "    sd = float(daily.std())"
+ ],
+ [
+  "alpha and beta swapped",
+  "lab/portfolio_forward.py",
+  "test = gates.sequential(daily.to_numpy(), effect=effect, sd=sd, alpha=alpha, beta=beta)",
+  "test = gates.sequential(daily.to_numpy(), effect=effect, sd=sd, alpha=beta, beta=alpha)"
+ ]
+]
