@@ -1,0 +1,32 @@
+[
+ [
+  "the screen not required",
+  "lab/um_monthly.py",
+  "checks = {\"screen\": bool(row[\"survives\"]),",
+  "checks = {\"screen\": True,"
+ ],
+ [
+  "any gate is enough",
+  "lab/um_monthly.py",
+  "    return all(checks.values())",
+  "    return any(checks.values())"
+ ],
+ [
+  "the family's Sharpes not passed",
+  "lab/um_monthly.py",
+  "deflated = gates.family_deflated(daily, list(row[\"selection_sharpe\"].values()))",
+  "deflated = gates.family_deflated(daily, [])"
+ ],
+ [
+  "the final check uses the screen's survivors",
+  "lab/um_monthly.py",
+  "{**row, \"survives\": verdict[\"ideas\"][name][\"survives\"]}",
+  "{**row, \"survives\": row[\"survives\"]}"
+ ],
+ [
+  "no vol-target benchmark",
+  "lab/um_monthly.py",
+  "                          \"btc_vol_target\": judge.joined({k: {\"daily\": vol[k]} for k in folds}, folds)}).fillna(0.0)",
+  "                          }).fillna(0.0)"
+ ]
+]
