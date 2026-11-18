@@ -1,0 +1,8 @@
+[["decided and filled the same day", "lab/us_equity.py", "    targets = pd.DataFrame({\"available_at\": df.index.to_numpy(np.int64) + DAY,", "    targets = pd.DataFrame({\"available_at\": df.index.to_numpy(np.int64),"],
+ ["one day of funding a bar", "lab/us_equity.py", "funding = {int(t): (D(repr(rate * int(n) * funding_multiplier)),)", "funding = {int(t): (D(repr(rate * 1 * funding_multiplier)),)"],
+ ["funding multiplier ignored", "lab/us_equity.py", "(D(repr(rate * int(n) * funding_multiplier)),)", "(D(repr(rate * int(n))),)"],
+ ["leverage not applied to the weights", "lab/us_equity.py", ".clip(-1.0, 1.0) * float(lev)", ".clip(-1.0, 1.0)"],
+ ["the given rate ignored", "lab/us_equity.py", "rate = daily_funding(perp, perps_snapshot) if daily_rate is None else daily_rate", "rate = daily_funding(perp, perps_snapshot)"],
+ ["NAV bars without volume", "lab/us_equity.py", "NAV_VOLUME = 1e9", "NAV_VOLUME = 0.0"],
+ ["a leveraged replay without a stop allowed", "lab/us_equity.py", "    if lev != 1 and (not 1 <= lev <= MAX_TOTAL_LEVERAGE or D(stop_pct) <= 0 or not lev <= exchange):", "    if False:"],
+ ["no funding history allowed", "lab/us_equity.py", "    if rate is None:\n        raise ValueError(f\"no funding history", "    if False:\n        raise ValueError(f\"no funding history"]]
