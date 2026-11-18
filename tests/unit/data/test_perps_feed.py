@@ -121,7 +121,7 @@ def test_a_failing_contract_is_recorded_and_the_others_still_update(tmp_path):
     feed = _seeded(tmp_path)
     now = T0 + 60 * H
     fake = FakeBinance(now, {"BTCUSDT": T0, "OLDUSDT": T0}, fail=frozenset({"OLDUSDT"}))
-    out = pf.update(feed, now_ms=now, fetch=fake, wait=lambda: None)
+    out = pf.update(feed, now_ms=now, fetch=fake, wait=lambda: None, pause=lambda s: None)
     assert out["failed"] == ["OLDUSDT"] and out["updated"] == 1
     assert len(_rows(feed / "OLDUSDT_1h.csv.gz")) == 48                   # untouched
     state = json.loads((feed / "state.json").read_text())
@@ -134,3 +134,29 @@ def test_every_funding_request_waits_for_its_slot(tmp_path):
     pf.update(feed, now_ms=T0 + 60 * H, fetch=FakeBinance(T0 + 60 * H, {"BTCUSDT": T0, "OLDUSDT": T0}),
               wait=lambda: calls.append(1))
     assert len(calls) == 2
+
+
+def test_a_contract_that_fails_once_is_tried_again_after_a_pause_and_errors_are_kept(tmp_path):
+    feed = _seeded(tmp_path)
+    now = T0 + 60 * H
+
+    class Flaky(FakeBinance):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            self.calls = 0
+
+        def __call__(self, url):
+            if "OLDUSDT" in url and "klines" in url:
+                self.calls += 1
+                if self.calls == 1:
+                    raise OSError("HTTP Error 429: Too Many Requests")
+            return super().__call__(url)
+
+    pauses = []
+    out = pf.update(feed, now_ms=now, fetch=Flaky(now, {"BTCUSDT": T0, "OLDUSDT": T0}), wait=lambda: None,
+                    pause=pauses.append)
+    assert out["failed"] == [] and out["updated"] == 2 and pauses == [pf.RETRY_PAUSE_S]
+    assert out["retried"] == ["OLDUSDT"]
+    broken = FakeBinance(now, {"BTCUSDT": T0, "OLDUSDT": T0}, fail=frozenset({"OLDUSDT"}))
+    out = pf.update(_seeded(tmp_path / "b"), now_ms=now, fetch=broken, wait=lambda: None, pause=lambda s: None)
+    assert out["failed"] == ["OLDUSDT"] and "network" in out["errors"]["OLDUSDT"]

@@ -32,6 +32,7 @@ BAR_HEADER = ",".join(COLUMNS)
 FUNDING_HEADER = "funding_time,rate"
 EXCHANGE_INFO = f"{FAPI}/fapi/v1/exchangeInfo"
 STATE = "state.json"
+RETRY_PAUSE_S = 30.0
 Fetch = Callable[[str], bytes]
 
 
@@ -85,14 +86,16 @@ def _rules(entry: dict) -> dict:
 
 
 def update(feed: Path, *, now_ms: int | None = None, fetch: Fetch = http_get,
-           wait: Callable[[], None] = _wait_for_funding_slot) -> dict:
-    """Append every trading crypto perpetual's closed bars and settled funding since its last row."""
+           wait: Callable[[], None] = _wait_for_funding_slot, pause: Callable[[float], None] = time.sleep) -> dict:
+    """Append every trading crypto perpetual's closed bars and settled funding since its last row. The contracts
+    that fail are tried once more after ``RETRY_PAUSE_S``; what still fails is recorded with its error."""
     feed = Path(feed)
     state = json.loads((feed / STATE).read_text())
     now_ms = int(time.time() * 1000) if now_ms is None else now_ms
     crypto, tradfi = contracts(json.loads(fetch(EXCHANGE_INFO)))
-    failed, new, updated = [], [], 0
-    for symbol in sorted(crypto):
+    new: list[str] = []
+
+    def one(symbol: str) -> str | None:
         bars_path, funding_path = feed / f"{symbol}_1h.csv.gz", feed / f"{symbol}_funding.csv.gz"
         try:
             bars, funding = _read(bars_path), _read(funding_path)
@@ -108,18 +111,29 @@ def update(feed: Path, *, now_ms: int | None = None, fetch: Fetch = http_get,
             wait()
             events = fetch_funding(symbol, (start - 1 if last_funding is None else last_funding) + 1, now_ms,
                                    fetch=fetch)
-        except Exception:                                            # noqa: BLE001 - recorded, the rest go on
-            failed.append(symbol)
-            continue
+        except Exception as exc:                                     # noqa: BLE001 - recorded, the rest go on
+            return f"{type(exc).__name__}: {exc}"[:200]
         if last is None:
             new.append(symbol)
         if added or last is None:
             _write(bars_path, BAR_HEADER, bars + added)
         if events or last_funding is None:
             _write(funding_path, FUNDING_HEADER, funding + [f"{e['fundingTime']},{e['fundingRate']}" for e in events])
-        updated += 1
-    out = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "now_ms": now_ms, "updated": updated,
-           "failed": failed, "new": new, "tradfi": tradfi, "trading": sorted(crypto),
+        return None
+
+    errors = {s: e for s in sorted(crypto) if (e := one(s)) is not None}
+    retried = sorted(errors)
+    if retried:
+        pause(RETRY_PAUSE_S)
+        for symbol in retried:
+            error = one(symbol)
+            if error is None:
+                del errors[symbol]
+            else:
+                errors[symbol] = error
+    out = {"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "now_ms": now_ms,
+           "updated": len(crypto) - len(errors), "failed": sorted(errors), "errors": errors, "retried": retried,
+           "new": sorted(new), "tradfi": tradfi, "trading": sorted(crypto),
            "rules": {s: _rules(e) for s, e in crypto.items()}}
     state["last_update"] = out
     (feed / STATE).write_text(json.dumps(state, indent=1) + "\n")
