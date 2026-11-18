@@ -160,3 +160,22 @@ def test_a_contract_that_fails_once_is_tried_again_after_a_pause_and_errors_are_
     broken = FakeBinance(now, {"BTCUSDT": T0, "OLDUSDT": T0}, fail=frozenset({"OLDUSDT"}))
     out = pf.update(_seeded(tmp_path / "b"), now_ms=now, fetch=broken, wait=lambda: None, pause=lambda s: None)
     assert out["failed"] == ["OLDUSDT"] and "network" in out["errors"]["OLDUSDT"]
+
+
+def test_a_daily_update_asks_for_few_bars_and_reports_progress(tmp_path):
+    feed = _seeded(tmp_path)
+    first, then = T0 + 160 * H, T0 + 172 * H
+    listed = {"BTCUSDT": T0, "OLDUSDT": T0, "NEWUSDT": T0}
+
+    def limits(fake):
+        return {u.split("symbol=")[1].split("&")[0]: int(u.split("limit=")[1].split("&")[0])
+                for u in fake.urls if "klines" in u}
+    catch_up = FakeBinance(first, listed)
+    pf.update(feed, now_ms=first, fetch=catch_up, wait=lambda: None, pause=lambda s: None)
+    assert limits(catch_up)["NEWUSDT"] == 1500                              # 160 hours missing: the long page
+    daily = FakeBinance(then, listed)
+    lines = []
+    pf.update(feed, now_ms=then, fetch=daily, wait=lambda: None, pause=lambda s: None, progress=lines.append, every=1)
+    assert set(limits(daily).values()) == {pf.SHORT_LIMIT} and pf.SHORT_LIMIT < 100   # 12 hours missing: weight 1
+    assert len(lines) == 3 and "3/3" in lines[-1]
+    assert [int(r.split(",")[0]) for r in _rows(feed / "BTCUSDT_1h.csv.gz")][-1] == then - H

@@ -33,6 +33,7 @@ FUNDING_HEADER = "funding_time,rate"
 EXCHANGE_INFO = f"{FAPI}/fapi/v1/exchangeInfo"
 STATE = "state.json"
 RETRY_PAUSE_S = 30.0
+SHORT_LIMIT = 99              # a page below 100 bars weighs 1 (1500 bars weigh 10)
 Fetch = Callable[[str], bytes]
 
 
@@ -86,7 +87,8 @@ def _rules(entry: dict) -> dict:
 
 
 def update(feed: Path, *, now_ms: int | None = None, fetch: Fetch = http_get,
-           wait: Callable[[], None] = _wait_for_funding_slot, pause: Callable[[float], None] = time.sleep) -> dict:
+           wait: Callable[[], None] = _wait_for_funding_slot, pause: Callable[[float], None] = time.sleep,
+           progress: Callable[[str], None] | None = None, every: int = 50) -> dict:
     """Append every trading crypto perpetual's closed bars and settled funding since its last row. The contracts
     that fail are tried once more after ``RETRY_PAUSE_S``; what still fails is recorded with its error."""
     feed = Path(feed)
@@ -105,8 +107,9 @@ def update(feed: Path, *, now_ms: int | None = None, fetch: Fetch = http_get,
                 start = max(int(state["start_ms"]), onboard // H * H)
             else:
                 start = last + H
+            limit = SHORT_LIMIT if (now_ms - start) // H < SHORT_LIMIT else 1500
             added = [",".join(str(v) for v in row) for row in fetch_klines(symbol, start, now_ms, fetch=fetch,
-                                                                           now_ms=now_ms)]
+                                                                           now_ms=now_ms, limit=limit)]
             last_funding = _last_time(funding)
             wait()
             events = fetch_funding(symbol, (start - 1 if last_funding is None else last_funding) + 1, now_ms,
@@ -121,7 +124,14 @@ def update(feed: Path, *, now_ms: int | None = None, fetch: Fetch = http_get,
             _write(funding_path, FUNDING_HEADER, funding + [f"{e['fundingTime']},{e['fundingRate']}" for e in events])
         return None
 
-    errors = {s: e for s in sorted(crypto) if (e := one(s)) is not None}
+    errors: dict[str, str] = {}
+    for k, symbol in enumerate(sorted(crypto), 1):
+        error = one(symbol)
+        if error is not None:
+            errors[symbol] = error
+        if progress and (k % every == 0 or k == len(crypto)):
+            last = f"; last error {symbol}: {error}" if error else ""
+            progress(f"{k}/{len(crypto)} done, {len(errors)} failed{last}")
     retried = sorted(errors)
     if retried:
         pause(RETRY_PAUSE_S)
@@ -157,7 +167,7 @@ def main(argv: list[str] | None = None) -> None:
         out = seed(args.snapshot, args.feed, start_ms=start, exclude=set(tradfi) | set(um_judge.STABLE))
         print(json.dumps({k: v for k, v in out.items() if k != "symbols"}))
     else:
-        out = update(args.feed)
+        out = update(args.feed, progress=lambda line: print(line, flush=True))
         print(json.dumps({k: out[k] for k in ("at", "updated", "failed", "new")}))
 
 

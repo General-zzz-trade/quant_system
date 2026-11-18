@@ -247,7 +247,8 @@ def main(argv: list[str] | None = None) -> int:
     bad = check_models(spec, STUDY / "frozen")
     state = json.loads((args.feed / perps_feed.STATE).read_text())
     if not args.no_update:
-        state["last_update"] = perps_feed.update(args.feed)
+        state["last_update"] = perps_feed.update(args.feed, progress=lambda line: print(line, file=sys.stderr,
+                                                                                       flush=True))
     now = int(state["last_update"]["now_ms"]) if args.no_update else int(time.time() * 1000)
     t = now // DAY * DAY
     report["t"] = t
