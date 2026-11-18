@@ -43,6 +43,10 @@ PERIODS = [(ms("2017-11-17"), ms("2019-11-17"))] + \
     [(ms(f"{y}-11-17"), ms(f"{y + 1}-11-17")) for y in range(2019, 2024)] + [(ms("2024-11-17"), ms("2026-11-13"))]
 FOLDS, HOLDOUT = [1, 2, 3, 4, 5], 6
 LONG_WINDOW = (ms("2005-11-18"), ms("2016-11-17"))
+# Amendment of 2026-11-18 (research/protocols/2026-11-18-us-equity-trend-amendment.md, before any result):
+INDEX, FRED_SNAP = ("NASDAQCOM",), ROOT / "data_files" / "us_index_fred_2026-11-12"
+NAS_WINDOW = (ms("1972-02-07"), ms("2016-11-17"))    # after a year of warm-up; before the 10 years
+SMALL, SMALL_CAPITAL = ("SPY", "QQQ", "GLD"), 150.0
 
 
 # -- the rules ---------------------------------------------------------------------------------------------------
@@ -76,26 +80,35 @@ def base_rate(ticker: str) -> float:
     return max(us.daily_funding(us.perpetual(ticker)) or 0.0, 0.0)
 
 
-START_U8, START_LONG = ms("2016-11-17"), ms("2004-11-18")      # every slot starts at the same time, flat
+START_U8, START_LONG, START_INDEX = ms("2016-11-17"), ms("2004-11-18"), ms("1971-02-05")   # slots start together
 
 
-def account(names, weight_of, *, stop="0", leverage="1", stress=False) -> dict:
+def source(t: str, names) -> tuple[dict, dict, int]:
+    """(daily_frame keywords, replay_daily keywords, start) of one name in this group."""
+    if t in INDEX:
+        return {"snapshot": FRED_SNAP, "index": True}, {"us_snapshot": FRED_SNAP, "index": True}, START_INDEX
+    long = tuple(names) == LONG
+    if long or t in NAV:
+        return {"nav": True}, {"nav": True}, START_LONG if long else START_U8
+    return {}, {}, START_U8
+
+
+def account(names, weight_of, *, stop="0", leverage="1", stress=False, capital=CAPITAL) -> dict:
     """Replay each name from the same day with an equal slot, combine 1/N; returns calendar-day returns (weekends
     0), the round trips and the times of the exchange stops. The signals read the whole history before the start."""
-    long = tuple(names) == LONG
     curves, trips, stops = [], [], []
     for t in names:
-        nav = long or t in NAV
-        df = us.daily_frame(t, nav=nav)
+        frame_kw, replay_kw, start = source(t, names)
+        df = us.daily_frame(t, **frame_kw)
         kw = {"cost_multiplier": 2, "daily_rate": 0.10 / 365} if stress else {"daily_rate": base_rate(t)}
         if stop != "0":
             kw.update(stop_pct=stop, pause_ms=PAUSE_MS, reenter_after_stop="pause_then_reset")
-        r = us.replay_daily(t, weight_of(df["close"]), nav=nav, leverage=leverage,
-                            start=START_LONG if long else START_U8, starting_balance=str(CAPITAL / len(names)), **kw)
+        r = us.replay_daily(t, weight_of(df["close"]), leverage=leverage, start=start,
+                            starting_balance=str(capital / len(names)), **replay_kw, **kw)
         curves.append(r["curve"])
         trips += lab.round_trips(r["fills"])
         stops += [int(f["at"]) for f in r["fills"] if f["order"] == "protective_stop"]
-    daily = lab.account_daily(curves, slots=len(names), slot_capital=CAPITAL / len(names))
+    daily = lab.account_daily(curves, slots=len(names), slot_capital=capital / len(names))
     full = daily.reindex(range(int(daily.index.min()), int(daily.index.max()) + 1)).fillna(0.0)
     return {"daily": full, "trips": trips, "stops": stops}
 
@@ -111,9 +124,23 @@ def per_period(result: dict) -> dict:
     return {k: cut(result, a, b) for k, (a, b) in enumerate(PERIODS)}
 
 
-def config_run(c: dict, *, stress=False, names=U8) -> dict:
+def config_run(c: dict, *, stress=False, names=U8, capital=CAPITAL) -> dict:
     return account(names, lambda close: weights(close, c["rule"], c["n"], c["target"]), stop=c["stop"],
-                   leverage=c["leverage"], stress=stress)
+                   leverage=c["leverage"], stress=stress, capital=capital)
+
+
+def concentration(chosen: list[dict]) -> dict:
+    """Report only: the 8 underlyings' daily-return correlations over the selection and folds, and each fold's mean
+    target weight per name for the configuration chosen for it."""
+    closes = pd.concat({t: us.daily_frame(t, nav=t in NAV)["close"] for t in U8}, axis=1).sort_index()
+    window = closes[(closes.index >= PERIODS[0][0]) & (closes.index < PERIODS[FOLDS[-1]][1])]
+    corr = window.pct_change(fill_method=None).corr().round(2)
+    exposure = {}
+    for c, k in zip(chosen, FOLDS):
+        a, b = PERIODS[k]
+        exposure[str(k)] = {t: round(float(weights(closes[t].dropna(), c["rule"], c["n"], c["target"])
+                                           .loc[a:b - 1].mean() * float(c["leverage"])), 3) for t in U8}
+    return {"correlation": {t: corr[t].to_dict() for t in U8}, "mean_target_weight_by_fold": exposure}
 
 
 def commit() -> str:
@@ -142,10 +169,14 @@ def screen() -> dict:
     long_run = cut(config_run(final, names=LONG), *LONG_WINDOW)
     long_hold = cut(account(LONG, lambda close: bench_weights(close, "hold")), *LONG_WINDOW)
     long_s, long_b = lab.summary(long_run["daily"]), lab.summary(long_hold["daily"])
+    nas_s = lab.summary(cut(config_run(final, names=INDEX), *NAS_WINDOW)["daily"])
+    nas_b = lab.summary(cut(account(INDEX, lambda close: bench_weights(close, "hold")), *NAS_WINDOW)["daily"])
+    small = {f"{int(cap)}_usdt": lab.summary(joined(per_period(config_run(final, names=SMALL, capital=cap)), FOLDS))
+             for cap in (CAPITAL, SMALL_CAPITAL)}
     checks = {"return_above_0": s["total_return"] > 0, "beats_hold": s["sharpe"] > bars["hold"]["sharpe"],
               "beats_vol_target": s["sharpe"] > bars["vol"]["sharpe"], "deflated_at_least_0.5": prob >= 0.5,
               "stress_return_above_0": lab.summary(stressed)["total_return"] > 0, "at_least_50_trades": trips >= 50,
-              "long_check_not_below_hold": long_s["sharpe"] >= long_b["sharpe"]}
+              "long_check_not_below_hold": long_s["sharpe"] >= long_b["sharpe"] and nas_s["sharpe"] >= nas_b["sharpe"]}
     rows = [{"family": FAMILY, "study": STUDY, "trial": label(c), "config": c,
              "window": [PERIODS[0][0], PERIODS[FOLDS[-1]][1]],
              "sharpe": lab.summary(joined(p, [0] + FOLDS)).get("sharpe", 0.0), "count": 1,
@@ -159,7 +190,11 @@ def screen() -> dict:
             "walk_forward": {"chosen": [label(c) for c in chosen], "final": label(final), "summary": s,
                              "deflated_probability": prob, "selection_sharpe_std": std, "n_trials": len(CONFIGS),
                              "stress": lab.summary(stressed), "round_trips": trips},
-            "long_check": {"window": ["2005-11-18", "2016-11-16"], "final_rule": long_s, "hold": long_b},
+            "long_check": {"spy_gld": {"window": ["2005-11-18", "2016-11-16"], "final_rule": long_s, "hold": long_b},
+                           "nasdaq_composite": {"window": ["1972-02-07", "2016-11-16"], "final_rule": nas_s,
+                                                "hold": nas_b}},
+            "small_capital_check": {"names": list(SMALL), "folds": small},
+            "concentration": concentration(chosen),
             "checks": checks, "survives": all(checks.values())}
 
 
