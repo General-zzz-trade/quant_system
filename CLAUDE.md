@@ -74,6 +74,11 @@
       BTC; mainnet refuses any symbol but BTCUSDT and ETHUSDT (#153), so as frozen it cannot become a pilot. Tracking
       goes on as a research record (owner, 2026-11-17); the four looks are one-shot scheduled tasks into the main
       session, the day after each end at 10:23 Asia/Shanghai (set 2026-11-18, after the retrospective).
+  - The weak-signal portfolio of 2026-11-18 (`research/protocols/2026-11-18-weak-signal-portfolio.md`), unverified:
+    the 17c ideas combined fold by fold (at most 5, equal capital, not rebalanced); history Sharpe 0.45 (BTC hold
+    0.45), members correlated 0.55-0.82; the 17c holdout +14.9 %. Frozen (`research/results/weak_portfolio_2026-11-18/
+    forward_spec.json`) and judged only forward by Wald's sequential test (H1 Sharpe 1.5) at 24 monthly looks
+    (2026-12-01 .. 2028-11-01), each on the monthly re-selection's new snapshot, with `lab/portfolio_forward.py`.
 - **Closed lines:**
   - Hourly ML (`runner.offline research`): the validation-only re-check failed 2026-11-13
     (`research/results/ml_recheck_2026-11-13/`). Its code was deleted 2026-11-15 (M4); the last version is
@@ -218,6 +223,7 @@ python3 -m scripts.live_fills --state-db <state.sqlite> --history <dir>   # pilo
 python3 -m scripts.live_fills --state-db <db> --history <dir> --events <events.jsonl> --json-out <f> --markdown-out <f>   # daily report
 python -m lab.um_monthly plan|screen|line|final --snapshot <dir> --run research/lab/runs/<date>   # monthly re-selection
 python -m lab.um_forward download|look --frozen <file> --study <name> --end <date> ...   # a champion's weekly look
+python -m lab.portfolio_forward --spec <forward_spec.json> --end <date> --data <monthly snapshot> --out <new dir>   # weak portfolio's monthly look
 python3 -m scripts.draft_strategy_spec --run <run dir> --snapshot <dir>   # a champion's spec draft (passed false)
 python -m data.downloads.perps_feed update --feed /root/lab_cache/prediction_feed/feed   # public data, no key
 python -m lab.daily_predict --feed /root/lab_cache/prediction_feed/feed --log /root/lab_cache/prediction_feed/predictions.jsonl   # the daily BTC/ETH report (updates the feed first)
