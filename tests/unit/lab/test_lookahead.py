@@ -339,6 +339,9 @@ OTHER_MODULES = {
     "lab.portfolio_forward": ("the monthly forward looks of the frozen weak-signal portfolio: replays the frozen "
                               "members with the judge, combines them and applies the sequential test at a registered "
                               "look; no feature of its own (test_portfolio_forward)"),
+    "lab.panel_forward": ("the monthly forward looks of the frozen panel models: runs the frozen panel code and models "
+                          "over a new snapshot up to a registered look's end and measures them; its features are the "
+                          "frozen panel study's (test_panel_forward)"),
     "lab.feature_study": ("the feature-pool study's targets (they look ahead by design: a label is the future), year "
                           "folds that purge the label window, fixed models and the shuffled-target null; its features "
                           "are lab.feature_pool's, checked here (test_feature_study)"),

@@ -1,0 +1,152 @@
+[
+ [
+  "first segment a day late",
+  "lab/panel_forward.py",
+  "    out, low = [], forward.FORWARD_START",
+  "    out, low = [], forward.FORWARD_START + DAY"
+ ],
+ [
+  "segments end at the look's end",
+  "lab/panel_forward.py",
+  "        high = end - days * DAY",
+  "        high = end"
+ ],
+ [
+  "segments all start at the forward start",
+  "lab/panel_forward.py",
+  "        low = high\n",
+  "        low = low\n"
+ ],
+ [
+  "one-class AUC not caught",
+  "lab/panel_forward.py",
+  "if len(y) and 0 < y.mean() < 1 else None",
+  "if len(y) else None"
+ ],
+ [
+  "gain not against the naive forecast",
+  "lab/panel_forward.py",
+  "    return _r2(y, p) - _r2(y, naive)",
+  "    return _r2(y, p)"
+ ],
+ [
+  "IC days with no value kept",
+  "lab/panel_forward.py",
+  "ic = ps.daily_rank_ic(t, p, y).dropna()",
+  "ic = ps.daily_rank_ic(t, p, y)"
+ ],
+ [
+  "trend bar 0.55",
+  "lab/panel_forward.py",
+  "JUDGED = {\"trend_14\": 0.60,",
+  "JUDGED = {\"trend_14\": 0.55,"
+ ],
+ [
+  "3 segments enough",
+  "lab/panel_forward.py",
+  "SEGMENTS_NEEDED = 4",
+  "SEGMENTS_NEEDED = 3"
+ ],
+ [
+  "trend segment bar 0",
+  "lab/panel_forward.py",
+  "segment_bar = 0.5 if target == \"trend_14\" else 0.0",
+  "segment_bar = 0.0"
+ ],
+ [
+  "gain of exactly 0 holds",
+  "lab/panel_forward.py",
+  "else pooled > JUDGED[target])",
+  "else pooled >= JUDGED[target])"
+ ],
+ [
+  "unjudged targets judged",
+  "lab/panel_forward.py",
+  "    if target not in JUDGED:\n        return None",
+  "    if False:\n        return None"
+ ],
+ [
+  "no registration check",
+  "lab/panel_forward.py",
+  "    registered = forward.registered_look(spec[\"study\"], digest, end, path=looks, now_ms=now_ms)",
+  "    registered = {\"registered\": \"x\"}"
+ ],
+ [
+  "any number of looks",
+  "lab/panel_forward.py",
+  "    if len(ends) != LOOKS_IN_PROTOCOL:",
+  "    if False:"
+ ],
+ [
+  "look numbers from 0",
+  "lab/panel_forward.py",
+  "    number = ends.index(end) + 1",
+  "    number = ends.index(end)"
+ ],
+ [
+  "a look evaluated twice",
+  "lab/panel_forward.py",
+  "    if out.exists() and any(out.iterdir()):",
+  "    if False:"
+ ],
+ [
+  "frozen code not checked",
+  "lab/panel_forward.py",
+  "changed = dp.code_changes(dp.FROZEN_CODE, current, frozen) + dp.check_models(spec, frozen_dir)",
+  "changed = dp.check_models(spec, frozen_dir)"
+ ],
+ [
+  "model files not checked",
+  "lab/panel_forward.py",
+  "changed = dp.code_changes(dp.FROZEN_CODE, current, frozen) + dp.check_models(spec, frozen_dir)",
+  "changed = dp.code_changes(dp.FROZEN_CODE, current, frozen)"
+ ],
+ [
+  "missing hours accepted",
+  "lab/panel_forward.py",
+  "    _whole(data, dp.COINS, forward.FORWARD_START, end_ms)",
+  "    pass"
+ ],
+ [
+  "thin universe accepted",
+  "lab/panel_forward.py",
+  "    if int(per_day.min()) < min_universe:",
+  "    if False:"
+ ],
+ [
+  "new tradfi kept",
+  "lab/panel_forward.py",
+  "run.EXCLUDE = frozenset(run.FROZEN_EXCLUDE) | frozenset(tradfi)",
+  "run.EXCLUDE = frozenset(run.FROZEN_EXCLUDE)"
+ ],
+ [
+  "bars past the end read",
+  "lab/panel_forward.py",
+  "run.SNAP, run.LIMIT = data, end_ms",
+  "run.SNAP, run.LIMIT = data, end_ms + 7 * DAY"
+ ],
+ [
+  "labels past the end kept",
+  "lab/panel_forward.py",
+  "ok = np.isfinite(yv) & (t < end_ms - days * DAY)",
+  "ok = np.isfinite(yv)"
+ ],
+ [
+  "every look judges",
+  "lab/panel_forward.py",
+  "        if number == LOOKS_IN_PROTOCOL:\n            measured[\"holds\"]",
+  "        if True:\n            measured[\"holds\"]"
+ ],
+ [
+  "the naive forecast dropped",
+  "lab/panel_forward.py",
+  "naive = pred.get(f\"{target} naive\")",
+  "naive = None"
+ ],
+ [
+  "BTC/ETH rows are all rows",
+  "lab/panel_forward.py",
+  "coins = np.isin(panel[\"symbol\"].to_numpy(), dp.COINS)",
+  "coins = np.ones(len(panel), dtype=bool)"
+ ]
+]
