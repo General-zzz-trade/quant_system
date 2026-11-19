@@ -1,4 +1,4 @@
-# 架构说明（2026-11-16 晚重写，R9；2026-11-17 更新）
+# 架构说明（2026-11-16 晚重写，R9；2026-11-17 更新；2026-11-19 D2 退出侧）
 
 - 这是仓库里唯一的架构说明。`trading/__init__.py`、`trading/application/ports.py` 和 `tests/architecture/test_rules.py`
   指向本文；ADR 里引用的"2.1""2.3""第 3 节"仍是这几节。
@@ -89,7 +89,7 @@ trading/
 | `FundingIncome` | `get_funding_income` | `adapters.binance` |
 | `OrderGateway` | `send_market_order`、`send_limit_order`、`get_order`、`cancel_order`、`get_recent_fills`、`get_ticker` | `adapters.binance`、`adapters.simulated` |
 | `StopOrderGateway` | `place_stop_market`、`get_algo_order`、`cancel_algo_order` | 同上 |
-| `AccountSnapshot` | 整个账户的持仓、挂单、条件单、品种设置（ADR-0010 的启动检查和运行中每分钟的检查） | `adapters.binance` |
+| `AccountSnapshot` | 整个账户的持仓、挂单、条件单、全部品种的设置（`get_settings_snapshot`，一次读取，D2）（ADR-0010 的启动检查和运行中每分钟的检查） | `adapters.binance` |
 | `OrderJournal` | 意图、订单、成交、检查点、止损行 | `adapters.sqlite.order_journal`（唯一写入者） |
 | `DrawdownGuard`、`LimitStore`、`EntryPauses`、`PaperStore` | 回撤闩锁、当日计数、入场暂停、模拟盘状态 | `adapters.sqlite` |
 | `KillSwitch`、`KillLatch` | `state`、`allow_order`；`trip`（只给亏损停止线用） | `adapters.files.kill_switch` |
@@ -150,10 +150,22 @@ trading/
 
 ### 5.3 退出侧（`exit_supervisor.py`）
 
-- 每分钟最多一次整账户检查（ADR-0011）；读亏损停止线（`risk/loss_stop.py`）；每 5 秒对账。
+- 每分钟最多一次整账户检查（ADR-0011）；读亏损停止线（`risk/loss_stop.py`）；每 5 秒对账。整账户检查从一次不带品种的持仓读取里
+  拿到每个品种的杠杆和保证金模式（`get_settings_snapshot`，D2）；规格里的品种在回答里没有、或那一行读不出，是一条
+  `ACCOUNT_UNREADABLE`（阻断全部入场）。
 - 对账（R5）：先把每个品种的成交消化完、刷新订单状态，再**一次**读整个账户的持仓（`get_position_snapshot`），然后每个品种用
-  这份快照对账和维护止损。快照读不出，或快照里没有某个品种的行：那个品种照旧自己读。某个品种消化成交出错，只有它记
-  `RECONCILE_FAILED`。平仓、手工工具和入场时的敞口检查仍读最新的持仓。
+  这份快照对账，按日志核对未结订单和未入账的成交。某个品种消化成交出错，只有它记 `RECONCILE_FAILED`。
+- 只有活跃的品种发自己的请求（D2，`ExitSupervisor.active`）：读自己的挂单、快照里没有它时读自己的持仓、维护止损、紧急平仓时读
+  持仓。活跃是指：快照里交易所持仓不为 0（快照里没有它的行时，看上一份有它的快照），日志里有这个品种没结算的订单（任何
+  所有者），账本有仓位或有活着的止损行（`ProtectiveStopManager.has_work`），会话有挂着或推迟的订单；读不出来算活跃。
+  - 不活跃的品种不发任何请求：它的外来挂单由每分钟一次的整账户检查发现（原来 5 秒）；外来持仓让它在下一轮快照里变成活跃。
+  - 快照读不出，或快照里没有某个不活跃品种的行：这些品种不单独读，`POSITIONS_UNREAD` 阻断全部入场；活跃的品种照旧自己读。
+    还没读到过快照时，不活跃的品种按平仓算：启动检查（ADR-0010）通过时账户里没有账本和日志之外的东西。
+  - 809 个品种、10 个持仓时每分钟约 395 权重，急停平仓的那一分钟约 325（`tests/characterization/test_exit_budget_universe.py`；
+    D2 之前分别约 14,000 和 62,600）。
+- 平仓：急停、回撤和止损击穿的平仓按快照里的数量决定要不要平（为 0 就不发也不读；账本有仓位而快照为 0 时再问交易所），
+  发单时照旧按最新读到的交易所持仓定数量（`size_reduction`）。快照里没有这个品种时，只有活跃的品种自己读。人工工具和入场时的
+  敞口检查仍读最新的持仓。
 - 问题都是类型化的（ADR-0014）；每种问题对交易的效果（阻断一个品种或全部入场、平仓、暂停、只告警）只在
   `trading/domain/issues.py` 的表里。每个品种的状态（warming、ready、blocked、paused、flattening、halted）每轮由退出侧设定，
   只有 ready 能入场。
@@ -248,6 +260,7 @@ trading/
 | 一起决定：一次调用、缺数据时谁都不决定 | `tests/unit/trading/test_decide_together.py`、`tests/characterization/test_decide_together_runtime.py` |
 | 资金费间隔按品种，未知时不入场、减仓照常 | `tests/unit/trading/test_funding_interval.py`、`tests/characterization/test_funding_interval_runtime.py` |
 | 整账户快照；10 个品种时请求权重留有余量 | `tests/unit/trading/test_account_snapshot.py`、`tests/characterization/test_account_weight.py` |
+| 退出侧只对活跃品种发请求，809 个品种时正常和急停平仓都在客户端额度的一半以内；整账户检查一次读全部设置 | `tests/unit/trading/test_exit_budget.py`、`tests/characterization/test_exit_budget_universe.py`、`tests/unit/binance/test_settings_snapshot.py` |
 | 规格允许才开空；空头的止损、敞口、平仓、浮动盈亏的符号 | `tests/unit/trading/test_allow_short.py`、`tests/characterization/test_shorts_runtime.py` |
 | 实验室的想法和原函数逐位相同；评审员通过接口回测；模拟盘对照登记的策略 | `tests/unit/trading/test_lab_ideas.py`、`tests/unit/lab/test_um_judge_interface.py`、`test_paper_compare_strategies.py` |
 | 测试从不联网 | `tests/conftest.py`、`tests/unit/tooling/test_network_guard.py` |

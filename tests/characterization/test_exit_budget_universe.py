@@ -73,7 +73,7 @@ class Counting:
 
 
 def keep_connections(monkeypatch) -> None:
-    """Keep the state database's connections open between uses. 809 sessions read it about 15 times each per cycle,
+    """Keep the state database's connections open between uses. 809 sessions read it about 30 times each per cycle,
     and a connection opened for every read (about 1 ms on the build host) would make this test take many minutes.
     Every statement and transaction is as in production (``trading.adapters.sqlite.connection.connect``: the same
     URI, settings and ``with`` transaction; a nested use gets its own connection); only the opening and closing are
