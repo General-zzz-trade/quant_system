@@ -65,3 +65,20 @@ def test_a_single_symbols_answer_is_read_too():
         {"bracket": 1, "initialLeverage": 75, "notionalCap": 10000, "notionalFloor": 0, "maintMarginRatio": "0.0065",
          "cum": 0}]}
     assert a.get_margin_tiers()["ETHUSDT"].brackets[0].maintenance_rate == D("0.0065")
+
+
+def test_the_quote_asset_and_an_unknown_status_are_read_as_they_are():
+    fake = FakeBinance()
+    fake.listed = ("BTCUSDT", "ETHUSDT", "BTCUSDC", "ODDUSDT")
+    fake.contract = {"BTCUSDC": {"quoteAsset": "USDC"}, "ODDUSDT": {"status": "BREAK"}}
+    c = _adapter(fake).contracts()
+    assert c["BTCUSDC"].quote == "USDC" and c["BTCUSDT"].quote == "USDT"
+    assert c["ODDUSDT"].state == "other"
+
+
+def test_one_malformed_contract_does_not_stop_the_connection_and_is_unfit():
+    fake = FakeBinance()
+    fake.listed = ("BTCUSDT", "ETHUSDT", "ODDUSDT")
+    fake.contract = {"ODDUSDT": {"deliveryDate": "2100-12-25"}}
+    c = _adapter(fake).contracts()                                         # connect() is asserted in _adapter
+    assert c["ODDUSDT"].delisting_at == 0 and c["BTCUSDT"].delisting_at is None

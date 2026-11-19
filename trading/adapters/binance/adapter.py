@@ -169,7 +169,7 @@ class BinanceAdapter:
         try:
             info = self._client.request_public(method="GET", path="/fapi/v1/exchangeInfo")
             by_symbol = {s["symbol"]: s for s in info.get("symbols", [])}
-            self._contracts = {name: _contract(entry) for name, entry in by_symbol.items()}
+            self._contracts = {name: parse_contract(entry) for name, entry in by_symbol.items()}
             for symbol in symbols:
                 self._filters[symbol] = self._parse_filters(by_symbol[symbol])
             mode = self._client.request_signed(method="GET", path="/fapi/v1/positionSide/dual")
@@ -219,15 +219,7 @@ class BinanceAdapter:
     def get_margin_tiers(self) -> dict[str, MarginTiers]:
         """Every symbol's maintenance margin tiers and maximum leverage (signed, read-only; plan D1). Errors
         propagate: unknown tiers refuse the start."""
-        rows = self._client.request_signed(method="GET", path="/fapi/v1/leverageBracket")
-        out = {}
-        for row in rows if isinstance(rows, list) else [rows]:
-            brackets = sorted((Bracket(floor=Decimal(str(b["notionalFloor"])), cap=Decimal(str(b["notionalCap"])),
-                                       maintenance_rate=Decimal(str(b["maintMarginRatio"])),
-                                       max_leverage=int(b["initialLeverage"])) for b in row["brackets"]),
-                              key=lambda b: b.floor)
-            out[row["symbol"]] = MarginTiers(row["symbol"], tuple(brackets))
-        return out
+        return parse_margin_tiers(self._client.request_signed(method="GET", path="/fapi/v1/leverageBracket"))
 
     def get_symbol_settings(self, symbol: str) -> tuple[int, str]:
         """(leverage, margin mode as positionRisk spells it: "cross" | "isolated"); errors propagate."""
@@ -626,10 +618,26 @@ class BinanceAdapter:
         return sorted(rows.items())[-limit:]
 
 
-def _contract(entry: dict[str, Any]) -> Contract:
+def parse_margin_tiers(rows: Any) -> dict[str, MarginTiers]:
+    """GET /fapi/v1/leverageBracket's answer (a list, or one symbol's object) as each symbol's tiers, lowest notional
+    first (plan D1; also read by ``account_check --pilot``)."""
+    out = {}
+    for row in rows if isinstance(rows, list) else [rows]:
+        brackets = sorted((Bracket(floor=Decimal(str(b["notionalFloor"])), cap=Decimal(str(b["notionalCap"])),
+                                   maintenance_rate=Decimal(str(b["maintMarginRatio"])),
+                                   max_leverage=int(b["initialLeverage"])) for b in row["brackets"]),
+                          key=lambda b: b.floor)
+        out[row["symbol"]] = MarginTiers(row["symbol"], tuple(brackets))
+    return out
+
+
+def parse_contract(entry: dict[str, Any]) -> Contract:
     """exchangeInfo's description of one contract in the domain's words; a missing delivery date counts as a
     scheduled delisting (fail closed)."""
-    delivery = int(entry.get("deliveryDate") or 0)
+    try:
+        delivery = int(entry.get("deliveryDate") or 0)
+    except (TypeError, ValueError):          # audit of D1, L2: one odd contract never stops the connection
+        delivery = 0
     return Contract(symbol=str(entry["symbol"]), kind=_CONTRACT_KINDS.get(entry.get("contractType", ""), "other"),
                     state=_CONTRACT_STATES.get(entry.get("status", ""), "other"),
                     quote=str(entry.get("quoteAsset", "")),

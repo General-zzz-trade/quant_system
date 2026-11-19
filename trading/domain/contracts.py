@@ -15,6 +15,7 @@ from decimal import Decimal
 from trading.domain.risk.liquidation import liquidation_distance
 
 PERPETUAL_KINDS = ("crypto", "tradfi")
+TIER_HEADROOM = Decimal(2)          # the margin tier is read for twice the planned position (the base grows)
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +48,14 @@ class MarginTiers:
         return next((b for b in self.brackets if b.floor <= notional < b.cap), None)
 
 
+def planned_notional(strategy_capital: Decimal | None, strategy_leverage: Decimal, count: int) -> Decimal:
+    """The position each symbol's margin tier is checked at: twice its share of the strategy capital times the
+    strategy leverage; without a strategy capital (the testnet only) the first tier."""
+    if strategy_capital is None:
+        return Decimal(0)
+    return Decimal(strategy_capital) * Decimal(strategy_leverage) / Decimal(count) * TIER_HEADROOM
+
+
 def contract_problems(symbol: str, contract: Contract | None, tiers: MarginTiers | None, *, stop_pct: Decimal,
                       leverage: int, margin: str | None, notional: Decimal, fraction: float = 0.5) -> list[str]:
     """Why ``symbol`` may not be traded; empty when it may."""
@@ -62,20 +71,27 @@ def contract_problems(symbol: str, contract: Contract | None, tiers: MarginTiers
         problems.append(f"{symbol}: delisting scheduled at {when}")
     if tiers is None or not tiers.brackets:
         return problems + [f"{symbol}: margin tiers unknown"]
-    if tiers.max_leverage() < leverage:
+    first_ok = tiers.max_leverage() >= leverage
+    if not first_ok:
         problems.append(f"{symbol}: the exchange allows at most {tiers.max_leverage()}x, the configuration asks "
                         f"{leverage}x")
+    bracket = tiers.at(notional)
+    if bracket is None:
+        return problems + [f"{symbol}: no margin tier for a position of {notional} USDT"]
+    if first_ok and bracket.max_leverage < leverage:       # audit of D1, L3: the planned position's own tier
+        problems.append(f"{symbol}: the exchange allows at most {bracket.max_leverage}x for a position of {notional} "
+                        f"USDT, the configuration asks {leverage}x")
+    rate = bracket.maintenance_rate
+    if not (rate.is_finite() and 0 <= rate < Decimal(1) / Decimal(leverage)):      # audit L5: fail closed
+        return problems + [f"{symbol}: maintenance margin rate {rate} is not usable"]
     if margin == "ISOLATED":
-        bracket = tiers.at(notional)
-        if bracket is None:
-            problems.append(f"{symbol}: no margin tier for a position of {notional} USDT")
-        else:
-            limit = fraction * liquidation_distance(leverage, float(bracket.maintenance_rate))
-            if float(stop_pct) > limit:
-                problems.append(f"{symbol}: protective stop {float(stop_pct):.2%} is not inside {fraction:.0%} of the "
-                                f"{leverage}x isolated liquidation distance at its maintenance margin rate "
-                                f"{float(bracket.maintenance_rate):.2%} (at most {limit:.4f})")
+        limit = fraction * liquidation_distance(leverage, float(rate))
+        if float(stop_pct) > limit:
+            problems.append(f"{symbol}: protective stop {float(stop_pct):.2%} is not inside {fraction:.0%} of the "
+                            f"{leverage}x isolated liquidation distance at its maintenance margin rate "
+                            f"{float(rate):.2%} (at most {limit:.4f})")
     return problems
 
 
-__all__ = ["Bracket", "Contract", "MarginTiers", "PERPETUAL_KINDS", "contract_problems"]
+__all__ = ["Bracket", "Contract", "MarginTiers", "PERPETUAL_KINDS", "TIER_HEADROOM", "contract_problems",
+           "planned_notional"]

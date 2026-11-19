@@ -81,3 +81,29 @@ def test_the_rate_is_read_at_the_planned_position_size():
 
 def test_cross_margin_has_no_liquidation_rule_here():
     assert check(margin_tiers=tiers(("0", "5000", "0.05", 50)), margin=None, stop="0.2") == []
+
+
+# -- audit of D1 (2026-11-19) -----------------------------------------------------------------------------------
+def test_the_leverage_rule_holds_with_isolated_margin_too():
+    problems = check(margin_tiers=tiers(("0", "5000", "0.004", 5)), leverage=10, stop="0.01")
+    assert problems == ["ETHUSDT: the exchange allows at most 5x, the configuration asks 10x"]
+
+
+def test_a_delisting_time_of_zero_is_a_scheduled_delisting():
+    assert check(Contract("ETHUSDT", "crypto", "open", "USDT", 0)) == [
+        "ETHUSDT: delisting scheduled at 1970-01-01T00:00+00:00"]
+
+
+def test_the_leverage_of_the_planned_positions_tier_must_allow_the_configured_leverage():
+    two = tiers(("0", "500", "0.004", 10), ("500", "5000", "0.004", 5))
+    assert check(margin_tiers=two, notional="499") == []
+    assert check(margin_tiers=two, notional="600") == [
+        "ETHUSDT: the exchange allows at most 5x for a position of 600 USDT, the configuration asks 10x"]
+    assert check(margin_tiers=two, notional="600", margin=None) == [
+        "ETHUSDT: the exchange allows at most 5x for a position of 600 USDT, the configuration asks 10x"]
+
+
+@pytest.mark.parametrize("rate", ["NaN", "Infinity", "-0.01", "0.1"])
+def test_an_unusable_maintenance_rate_is_refused(rate):
+    problems = check(margin_tiers=tiers(("0", "5000", rate, 50)))
+    assert problems == [f"ETHUSDT: maintenance margin rate {rate} is not usable"]
