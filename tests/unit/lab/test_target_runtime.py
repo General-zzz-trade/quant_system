@@ -47,8 +47,10 @@ def _world(tmp_path, spec: StrategySpec, *, passed=False, bases=(("BTCUSDT", 300
             if p.get("clientAlgoId"):  # algo-order lookups carry no symbol: the venue holding the id answers
                 owner = next((f for f in fakes.values() if p["clientAlgoId"] in f.algo), fakes["BTCUSDT"])
                 return owner.request_signed(method=method, path=path, params=params)
-            if path in ("/fapi/v2/positionRisk", "/fapi/v1/openOrders"):  # account-wide reads span both
-                return [row for f in fakes.values() for row in f.request_signed(method=method, path=path, params=p)]
+            if path in ("/fapi/v2/positionRisk", "/fapi/v1/openOrders"):  # account-wide reads span both; each venue
+                return [row for s, f in fakes.items()      # answers for its own symbol and one no venue owns (D2)
+                        for row in f.request_signed(method=method, path=path, params=p)
+                        if row["symbol"] == s or row["symbol"] not in fakes]
             return fakes["BTCUSDT"].request_signed(method=method, path=path, params=params)
 
     adapter = BinanceAdapter(BinanceConfig(api_key="k", api_secret="s"), client=Router())
