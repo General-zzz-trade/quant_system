@@ -14,7 +14,7 @@ from decimal import Decimal
 from collections.abc import Callable
 from typing import Any, Protocol
 
-from trading.application.ports import EventLog
+from trading.application.ports import EventLog, PositionView
 from trading.domain.bars import HOUR, Bar
 from trading.domain.market import frame_from_bars, funding_window
 from trading.domain.orders import BLOCKED, SETTLED
@@ -277,10 +277,12 @@ class TargetSession:
         self.executor.cancel_entries(self.symbol)
         self.consume_fills()
 
-    def flatten(self, reason: str, now_ms: int | None = None) -> None:
+    def flatten(self, reason: str, now_ms: int | None = None, *, position: PositionView | None = None,
+                may_hold: bool = True) -> None:
         """Exit for a kill switch, a latched drawdown or a breached stop; called every cycle while it holds.
         Resting entries are canceled first and failed attempts are retried (step 11, ``Flattener``). Without
-        bars (a warm-up that market data did not allow, step 14) the hour of ``now_ms`` names the attempts."""
+        bars (a warm-up that market data did not allow, step 14) the hour of ``now_ms`` names the attempts.
+        ``position`` and ``may_hold``: what the exit side knows of the venue position (plan D2, ``Flattener``)."""
         self.drop_deferred(f"{reason}: deferred entry dropped")
         if self.flattener is None:
             return
@@ -291,7 +293,8 @@ class TargetSession:
             bar = Bar(hour - HOUR, Decimal(0), Decimal(0), Decimal(0), Decimal(0), Decimal(0))
         else:
             return
-        self.flattener.flatten(reason, bar=bar, ledger=self.position_qty, consume=self.consume_fills)
+        self.flattener.flatten(reason, bar=bar, ledger=self.position_qty, consume=self.consume_fills,
+                               position=position, may_hold=may_hold)
 
 
 __all__ = ["Deferred", "ExecutionParts", "MAX_ENTRY_DELAY_MS", "TargetSession"]

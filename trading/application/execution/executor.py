@@ -100,9 +100,11 @@ class OwnerExecutor:
                           qty=Decimal(str(row["qty"])), price=Decimal(str(row["price"])))
                      for row in self._service.poll())
 
-    def reconcile_account(self, symbol: str, positions: Mapping[str, PositionView] | None = None) -> list[Issue]:
-        """Read-only verification; a blocking issue blocks entries until a clean pass."""
-        return self._service.reconcile(symbol, positions)
+    def reconcile_account(self, symbol: str, positions: Mapping[str, PositionView] | None = None, *,
+                          venue_reads: bool = True) -> list[Issue]:
+        """Read-only verification; a blocking issue blocks entries until a clean pass. ``venue_reads`` False: an idle
+        symbol, which sends no request of its own (plan D2)."""
+        return self._service.reconcile(symbol, positions, venue_reads=venue_reads)
 
 
 __all__ = ["Fill", "OwnerExecutor"]

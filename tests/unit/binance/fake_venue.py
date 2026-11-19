@@ -179,7 +179,9 @@ class FakeBinance:
         if path == "/fapi/v2/positionRisk":
             if self.position_error:
                 raise BinanceRetryableError("HTTP 503: unavailable")
-            symbols = [p["symbol"]] if p.get("symbol") else list(self.positions)
+            # plan D2: without a symbol, a row for every listed symbol, flat ones included, as Binance answers it
+            # (checked live 2026-11-19: a flat BTCUSDT row carried its leverage and margin mode)
+            symbols = [p["symbol"]] if p.get("symbol") else list(dict.fromkeys([*self.listed, *self.positions]))
             return [{"symbol": s, "positionAmt": str(self.positions.get(s, D(0))),
                      "entryPrice": str(self.entry.get(s, 0)), "markPrice": str(self.mark(s)),
                      "positionSide": "BOTH", "leverage": str(self.leverage.get(s, 3)),

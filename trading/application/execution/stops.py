@@ -276,6 +276,11 @@ class ProtectiveStopManager:
                 found[row["client_algo_id"]] = Issue(kind, self.symbol, PAUSE_CAUSES[kind])
         return found
 
+    def has_work(self) -> bool:
+        """Whether ``sync`` has anything to do (plan D2): a ledger position to protect, or a live stop row to follow,
+        replace or cancel. Without either it would read the venue position and change nothing."""
+        return self._position()[0] != 0 or bool(self._rows())
+
     def has_active_stop(self) -> bool:
         return any(r["status"] == "active" for r in self._rows())
 

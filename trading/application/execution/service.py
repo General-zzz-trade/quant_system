@@ -209,13 +209,16 @@ class ExecutionService:
                 self._log_fills(intent_id, (fact,))
             return self.journal.fills(self.owner)
 
-    def reconcile(self, symbol: str, positions: Mapping[str, PositionView] | None = None) -> list[Issue]:
+    def reconcile(self, symbol: str, positions: Mapping[str, PositionView] | None = None, *,
+                  venue_reads: bool = True) -> list[Issue]:
         """Read-only verification; an issue whose effects block the symbol's entries blocks them until a
-        clean pass (ADR-0014 table). ``positions``: this cycle's account snapshot (plan R5)."""
+        clean pass (ADR-0014 table). ``positions``: this cycle's account snapshot (plan R5); ``venue_reads`` False:
+        an idle symbol, which sends no request of its own (plan D2, ``reconcile_account``)."""
         self.ready = False
         blockers = getattr(self._venue, "execution_blockers", None)   # optional on legacy venues
         issues = [Issue(IssueKind.VENUE_BLOCKED, symbol, text) for text in (blockers() if blockers else [])]
-        issues += reconcile_account(self._venue, self.journal, owner=self.owner, symbol=symbol, positions=positions)
+        issues += reconcile_account(self._venue, self.journal, owner=self.owner, symbol=symbol, positions=positions,
+                                    venue_reads=venue_reads)
         # A block-all problem blocks this symbol too; the exit side spreads it to the others (ADR-0011).
         self.ready = not (with_effect(issues, Effect.BLOCK_SYMBOL_ENTRIES) or
                           with_effect(issues, Effect.BLOCK_ALL_ENTRIES))

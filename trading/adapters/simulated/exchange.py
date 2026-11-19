@@ -150,6 +150,10 @@ class SimulatedExchange:
         self._broker(symbol)
         return 1, "cross"
 
+    def get_settings_snapshot(self) -> dict[str, tuple[int, str]]:
+        """Every simulated symbol's (leverage, margin mode) at once, as the Binance adapter answers it (plan D2)."""
+        return {name: (1, "cross") for name, _ in self._selected("")}
+
     def get_ticker(self, symbol: str) -> Ticker:
         mark = float(self._broker(symbol).mark)
         return {"symbol": symbol, "lastPrice": mark, "bid1Price": mark, "ask1Price": mark}

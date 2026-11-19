@@ -112,6 +112,7 @@ def test_a_failed_reconciliation_blocks_entries_until_the_next_clean_pass(tmp_pa
         raise OSError("stop lookup failed")
 
     session.stops.sync = broken
+    session.stops.has_work = lambda: True       # plan D2: an idle symbol's stop has nothing to do and is not synced
     runtime.reconcile()
     assert session.executor.ready is False and runtime.sessions["ETHUSDT"].executor.ready is True
     issues = [json.loads(line) for line in (tmp_path / "exec/target_events.jsonl").read_text().splitlines()]

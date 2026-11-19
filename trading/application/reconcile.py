@@ -32,9 +32,11 @@ def booked_position(journal: OrderJournal, rows: list[dict[str, Any]], symbol: s
 
 
 def reconcile_account(account: ExchangeAccount, journal: OrderJournal, *, owner: str, symbol: str,
-                      positions: Mapping[str, PositionView] | None = None) -> list[Issue]:
+                      positions: Mapping[str, PositionView] | None = None, venue_reads: bool = True) -> list[Issue]:
     """``positions``: the account's position rows read once for every symbol this cycle (plan R5); a symbol without
-    a row there, or no snapshot, is read alone."""
+    a row there, or no snapshot, is read alone. ``venue_reads`` False (plan D2: an idle symbol) sends nothing of the
+    symbol's own: its open orders are left to the whole-account check, and a position not in ``positions`` is not
+    read, nor compared (the caller blocks every entry while it is unknown). The journal checks run either way."""
     issues: list[Issue] = []
 
     def add(kind: K, text: str) -> None:
@@ -42,20 +44,22 @@ def reconcile_account(account: ExchangeAccount, journal: OrderJournal, *, owner:
 
     try:
         rows = [positions[symbol]] if positions is not None and symbol in positions \
-            else account.get_positions(symbol=symbol, strict=True)
-        nonflat = [p for p in rows if p.symbol == symbol and Decimal(str(p.qty)) != 0]
-        if len(nonflat) > 1:
-            add(K.LEDGER_MISMATCH, "multiple positions require explicit reconciliation")
-        actual = sum((Decimal(str(p.qty)) for p in nonflat), Decimal(0))
-        expected = booked_position(journal, journal.orders(), symbol, owner)
-        if not actual.is_finite() or not expected.is_finite() or actual != expected:
-            add(K.LEDGER_MISMATCH, f"venue qty={actual}, ledger qty={expected}")
+            else account.get_positions(symbol=symbol, strict=True) if venue_reads else None
+        if rows is not None:
+            nonflat = [p for p in rows if p.symbol == symbol and Decimal(str(p.qty)) != 0]
+            if len(nonflat) > 1:
+                add(K.LEDGER_MISMATCH, "multiple positions require explicit reconciliation")
+            actual = sum((Decimal(str(p.qty)) for p in nonflat), Decimal(0))
+            expected = booked_position(journal, journal.orders(), symbol, owner)
+            if not actual.is_finite() or not expected.is_finite() or actual != expected:
+                add(K.LEDGER_MISMATCH, f"venue qty={actual}, ledger qty={expected}")
         if any(row["symbol"] == symbol for row in journal.orders(unresolved=True)):
             add(K.UNRESOLVED_ORDER, UNRESOLVED_ORDERS)
-        known = {row["order_id"] for row in journal.orders() if row["symbol"] == symbol}
-        for order in account.get_open_orders(symbol=symbol, strict=True):
-            if order.order_id not in known:
-                add(K.FOREIGN_HOLDING, f"unowned open order {order.order_id}")
+        if venue_reads:
+            known = {row["order_id"] for row in journal.orders() if row["symbol"] == symbol}
+            for order in account.get_open_orders(symbol=symbol, strict=True):
+                if order.order_id not in known:
+                    add(K.FOREIGN_HOLDING, f"unowned open order {order.order_id}")
         if journal.fills(owner):
             add(K.UNDELIVERED_FILL, "undelivered fills")
     except Exception as exc:

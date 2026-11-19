@@ -43,7 +43,7 @@ def foreign_holdings(account: AccountSnapshot, journal: OrderJournal, *, symbols
         positions = account.get_positions(strict=True)
         orders = account.get_open_orders(strict=True)
         stops = account.get_open_algo_orders()
-        settings = {symbol: account.get_symbol_settings(symbol) for symbol in symbols}
+        settings = account.get_settings_snapshot()      # plan D2: one read for every symbol, not one each
     except Exception as exc:
         return [Issue(K.ACCOUNT_UNREADABLE, None, f"account could not be read ({type(exc).__name__}: {exc})")]
     try:
@@ -102,6 +102,10 @@ def foreign_holdings(account: AccountSnapshot, journal: OrderJournal, *, symbols
                                   f"{stop.symbol}: conditional order {stop.client_algo_id} is not in the "
                                   "strategy journal"))
     for symbol in symbols:
+        if symbol not in settings:              # not in the answer, or its row could not be read: fail closed
+            findings.append(Issue(K.ACCOUNT_UNREADABLE, symbol,
+                                  f"{symbol}: leverage and margin mode could not be read from the account"))
+            continue
         venue_leverage, venue_margin = settings[symbol]
         if venue_leverage != leverage:
             findings.append(Issue(K.ACCOUNT_SETTINGS, symbol,

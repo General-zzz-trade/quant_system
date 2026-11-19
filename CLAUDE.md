@@ -276,7 +276,8 @@ python -m trading.infrastructure.manual --state-dir <dir> position --symbol BTCU
     - Each symbol waits for and checks funding at its own settlement interval, read from the exchange (R4);
       unknown, it takes no entries.
     - The exit side reads the whole account's positions once per reconciliation (`exit_supervisor.reconcile`,
-      R5); a symbol missing from that snapshot, or an unreadable snapshot, reads its own.
+      R5); since D2 only an active symbol (a venue position, an unsettled order, a ledger position or a live stop row)
+      makes requests of its own; an unreadable snapshot, or one missing an idle symbol's row, blocks every entry.
   - Paper mode runs the same execution path (gates, journal, lifecycle, stops, reconciliation) on the simulated
     exchange (`trading/adapters/simulated`: the research brokers, stops by bar high/low; ADR-0013 plan B).
     `ModePolicy` (`trading/infrastructure/modes.py`) is the one list of the differences. Paper uses the code's

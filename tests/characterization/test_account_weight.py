@@ -63,8 +63,10 @@ def _world(tmp_path):
             if p.get("clientAlgoId"):
                 owner = next((f for f in fakes.values() if p["clientAlgoId"] in f.algo), fakes["BTCUSDT"])
                 return owner.request_signed(method=method, path=path, params=params)
-            if path in ACCOUNT_WIDE:
-                return [row for f in fakes.values() for row in f.request_signed(method=method, path=path, params=p)]
+            if path in ACCOUNT_WIDE:        # each venue answers for its own symbol and one no venue owns (plan D2)
+                return [row for s, f in fakes.items()
+                        for row in f.request_signed(method=method, path=path, params=p)
+                        if row["symbol"] == s or row["symbol"] not in fakes]
             return fakes["BTCUSDT"].request_signed(method=method, path=path, params=params)
 
     adapter = BinanceAdapter(BinanceConfig(api_key="k", api_secret="s"), client=Router())

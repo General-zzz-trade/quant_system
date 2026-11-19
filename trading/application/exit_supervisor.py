@@ -58,7 +58,13 @@ class ExitSupervisor:
         self._exit_observer = exit_observer
         self._risk_exits: dict[str, tuple[str, str] | None] = {}
         self.account_findings: list[Issue] = []
-        self.snapshot_issue: Issue | None = None       # the last failed read of every position (R5 audit)
+        self.snapshot_issue: Issue | None = None       # positions the last reconciliation did not know (R5 audit, D2)
+        self._snapshot_failure: Issue | None = None    # the last failed read of every position
+        # Plan D2: the last reconciliation's snapshot of every position (the emergency flatten's quantities), and
+        # each symbol's "held something" in the last snapshot that had its row. Nothing seen yet is flat: the
+        # start-up check (ADR-0010) found nothing outside the ledger and the orders the journal holds.
+        self.positions: Mapping[str, PositionView] | None = None
+        self._held_seen: dict[str, bool] = {}
         self.loss_stop = loss_stop                  # owner 2026-11-16; None without a strategy capital
         self.loss_findings: list[Issue] = []
         self.last_account_check = clock()
@@ -200,14 +206,20 @@ class ExitSupervisor:
                 session.executor.notify_status()
             except Exception as exc:
                 failed[symbol] = exc
-        positions = self._position_snapshot()
+        positions = self.positions = self._position_snapshot()
+        # Plan D2: only an active symbol sends requests of its own (its open orders, its position when the snapshot
+        # has none, its stop's upkeep); an idle one is reconciled against the journal and the snapshot only.
+        active = {symbol: self.active(symbol, session, positions) for symbol, session in self.sessions.items()}
+        self._note_unknown_positions(positions, active)
         if self.snapshot_issue is not None:
             cycle_errors = cycle_errors + [self.snapshot_issue]
         for symbol, session in self.sessions.items():
             try:
                 if symbol in failed:
                     raise failed[symbol]
-                issues = session.executor.reconcile_account(symbol, positions) + session.stops.sync(positions)
+                issues = session.executor.reconcile_account(symbol, positions, venue_reads=active[symbol])
+                if active[symbol]:          # idle: no ledger position, no live stop row - sync would do nothing
+                    issues += session.stops.sync(positions)
             except Exception as exc:
                 issues = [Issue(K.RECONCILE_FAILED, symbol, f"reconciliation failed: {type(exc).__name__}: {exc}")]
                 logger.exception("%s reconciliation failed; entries blocked", symbol)
@@ -237,24 +249,62 @@ class ExitSupervisor:
         self.last_reconcile = self.clock()
 
     def _position_snapshot(self) -> Mapping[str, PositionView] | None:
-        """The account's positions for this reconciliation (plan R5). Unreadable, each symbol reads its own as before
-        R5 - and fails on its own if the account cannot be read at all."""
+        """The account's positions for this reconciliation (plan R5). Unreadable, a symbol that could hold something
+        reads its own (plan D2, ``active``) - and fails on its own if the account cannot be read at all."""
         if self.account is None:
             return None
         try:
             positions = self.account.get_position_snapshot()
         except Exception as exc:
-            # R5 audit: not silent. Each symbol then reads its own (exits go on), at five times the request weight
-            # of the snapshot per symbol, so every entry is blocked and a person is told when it lasts.
-            issue = Issue(K.POSITIONS_UNREAD, None, "account positions not read in one request "
-                          f"({type(exc).__name__}: {exc}); each symbol reads its own; entries blocked")
-            if issue != self.snapshot_issue:
-                write_issue(self.journal, None, issue)
-                logger.error("%s", issue)
-            self.snapshot_issue = issue
+            # R5 audit: not silent. The reads one by one weigh five times the snapshot each, so every entry is
+            # blocked and a person is told when it lasts.
+            self._snapshot_failure = Issue(K.POSITIONS_UNREAD, None, "account positions not read in one request "
+                                           f"({type(exc).__name__}: {exc}); only the symbols that could hold "
+                                           "something read their own; entries blocked")
             return None
-        self.snapshot_issue = None
+        self._snapshot_failure = None
+        for symbol in self.sessions:
+            row = positions.get(symbol)
+            if row is not None:
+                try:
+                    self._held_seen[symbol] = Decimal(str(row.qty)) != 0
+                except Exception:
+                    self._held_seen[symbol] = True          # a quantity that cannot be read could be anything
         return positions
+
+    def active(self, symbol: str, session: TargetSession, positions: Mapping[str, PositionView] | None) -> bool:
+        """Plan D2: whether ``symbol`` sends requests of its own in this reconciliation - its open orders, its position
+        when ``positions`` has no row for it, its stop's upkeep, its flatten's read. Active: the venue holds something
+        in ``positions`` (without a row there: held something in the last snapshot that had one), the session has a
+        working or deferred order, an order of the symbol is unsettled in the journal (any owner), or the ledger
+        holds a position or a stop row is live (``ProtectiveStopManager.has_work``). What cannot be read counts as
+        active, and so does every symbol without an account to read a snapshot from."""
+        if self.account is None:
+            return True
+        try:
+            row = positions.get(symbol) if positions is not None else None
+            held = Decimal(str(row.qty)) != 0 if row is not None else self._held_seen.get(symbol, False)
+            return bool(held or session.pending or session.deferred is not None
+                        or any(r["symbol"] == symbol for r in session.executor.journal.orders(unresolved=True))
+                        or session.stops.has_work())
+        except Exception:
+            return True
+
+    def _note_unknown_positions(self, positions: Mapping[str, PositionView] | None, active: dict[str, bool]) -> None:
+        """Positions this reconciliation does not know block every entry (``POSITIONS_UNREAD``): none at all (the
+        snapshot failed), or an idle symbol without a row in it, which is not read one by one (plan D2: a missing
+        row of every flat symbol would otherwise cost 5 a symbol). Written when it changes."""
+        issue = self._snapshot_failure
+        if issue is None and positions is not None:
+            missing = sorted(symbol for symbol in self.sessions if symbol not in positions and not active[symbol])
+            if missing:
+                shown = ", ".join(missing[:5]) + (f" and {len(missing) - 5} more" if len(missing) > 5 else "")
+                issue = Issue(K.POSITIONS_UNREAD, None, f"the account's positions have no row for {shown}; they hold "
+                              "nothing the strategy knows of and are not read one by one; entries blocked")
+        if issue is not None and issue != self.snapshot_issue:
+            write_issue(self.journal, None, issue)
+            logger.error("%s", issue)
+        self.snapshot_issue = issue
 
     def _block(self, session: TargetSession, issues: list[Issue]) -> None:
         """Entry blocks from the ADR-0014 table; reductions are never blocked."""
@@ -357,12 +407,18 @@ class ExitSupervisor:
 
     def _exit(self, symbol: str, session: TargetSession, reason: str | None) -> None:
         """Flatten (or, without a reason, only cancel resting entries). A failure is reported, never raised:
-        one symbol's broken exit must not stop the other symbol's, nor the next cycle."""
+        one symbol's broken exit must not stop the other symbol's, nor the next cycle.
+
+        Plan D2: the flatten takes the venue quantity from the last reconciliation's snapshot; without a row there
+        only a symbol that could hold something (``active``) reads its own."""
         try:
             if reason is None:
                 session.cancel_entries()
             else:
-                session.flatten(reason, now_ms=int(self.clock() * 1000))
+                positions = self.positions
+                row = positions.get(symbol) if positions is not None else None
+                may_hold = row is not None or self.active(symbol, session, positions)   # with a row: not asked
+                session.flatten(reason, now_ms=int(self.clock() * 1000), position=row, may_hold=may_hold)
             self.exit_errors.pop(symbol, None)
         except Exception as exc:
             what = "flatten" if reason else "entry cancellation"

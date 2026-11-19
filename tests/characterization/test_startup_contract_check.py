@@ -286,7 +286,7 @@ def test_a_positions_read_failing_in_the_contract_gate_refuses_with_its_alert(wo
     def second_fails(*, method, path, params=None):
         if path == "/fapi/v2/positionRisk" and not (params or {}).get("symbol"):
             seen.append(path)
-            if len(seen) == 2:                                   # the account check's read passes, the gate's fails
+            if len(seen) == 3:              # the account check's two (positions, settings: D2) pass, the gate's fails
                 raise BinanceRetryableError("HTTP 503: unavailable")
         return signed(method=method, path=path, params=params)
     fake.request_signed = second_fails

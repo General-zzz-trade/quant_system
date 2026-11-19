@@ -84,7 +84,8 @@ def test_a_block_all_problem_raised_on_one_symbol_blocks_every_symbol(tmp_path, 
     world, runtime = _execution(tmp_path, execution="market")
     btc = runtime.sessions["BTCUSDT"]
     monkeypatch.setattr(btc.executor, "reconcile_account",
-                        lambda symbol, positions=None: [Issue(IssueKind.MARKET_REFUSED, symbol, f"{symbol}: probe")])
+                        lambda symbol, positions=None, **_:
+                        [Issue(IssueKind.MARKET_REFUSED, symbol, f"{symbol}: probe")])
     _tick(world, runtime)
     eth = runtime.sessions["ETHUSDT"]
     assert eth.executor.ready is False and eth.state is S.BLOCKED

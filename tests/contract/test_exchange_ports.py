@@ -258,6 +258,14 @@ def test_the_account_reads(make):
     assert isinstance(leverage, int) and leverage >= 1 and margin in ("cross", "isolated")
 
 
+def test_every_symbol_s_settings_in_one_read(make):
+    """Plan D2: the whole-account check reads every symbol's leverage and margin mode at once."""
+    h = make()
+    settings = h.venue.get_settings_snapshot()
+    assert settings["BTCUSDT"] == h.venue.get_symbol_settings("BTCUSDT")
+    assert settings["ETHUSDT"] == h.venue.get_symbol_settings("ETHUSDT")
+
+
 # -- protective stops -------------------------------------------------------------------------------------------
 def test_a_protective_stop_is_active_until_canceled(make):
     h = make()

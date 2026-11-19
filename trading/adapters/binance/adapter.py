@@ -136,6 +136,16 @@ def _fmt(value: Decimal) -> str:
     return text if text else "0"
 
 
+def _settings(row: dict[str, Any]) -> tuple[int, str] | None:
+    """(leverage, margin mode) of one positionRisk row; None when either cannot be read (plan D2)."""
+    margin = str(row.get("marginType") or "").lower()
+    try:
+        leverage = int(str(row.get("leverage")))
+    except ValueError:
+        return None
+    return (leverage, margin) if leverage >= 1 and margin in MARGIN_TYPES.values() else None
+
+
 def _stop_order(row: dict[str, Any]) -> StopOrder:
     status = str(row.get("algoStatus", "")).upper()
     state = STOP_ACTIVE if status in ACTIVE else STOP_TRIGGERED if status in TRIGGERED else STOP_GONE
@@ -228,6 +238,23 @@ class BinanceAdapter:
         if row is None or str(row.get("marginType", "")).lower() not in MARGIN_TYPES.values():
             raise RuntimeError(f"{symbol}: leverage/margin settings could not be read")
         return int(row["leverage"]), str(row["marginType"]).lower()
+
+    def get_settings_snapshot(self) -> dict[str, tuple[int, str]]:
+        """Every symbol's (leverage, margin mode as positionRisk spells it) from one ``positionRisk`` read without a
+        symbol, which answers a row for every symbol, flat ones included (plan D2; weight 5 instead of 5 per symbol).
+        A row whose leverage or margin mode cannot be read, or rows of one symbol that disagree, leave the symbol out:
+        unknown, for the caller to refuse. An answer that is not a list of rows raises."""
+        rows = self._client.request_signed(method="GET", path="/fapi/v2/positionRisk", params={})
+        if not isinstance(rows, list):
+            raise RuntimeError("Invalid Binance position snapshot")
+        out: dict[str, tuple[int, str] | None] = {}
+        for row in rows:
+            symbol = row.get("symbol") if isinstance(row, dict) else None
+            if not isinstance(symbol, str) or not symbol:
+                raise RuntimeError("Invalid Binance position snapshot")
+            settings = _settings(row)
+            out[symbol] = settings if out.get(symbol, settings) == settings else None
+        return {symbol: settings for symbol, settings in out.items() if settings is not None}
 
     def is_connected(self) -> bool:
         return self._connected
