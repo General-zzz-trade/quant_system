@@ -4,11 +4,16 @@ own maintenance margin tier puts the protective stop beyond half the liquidation
 runtime is built; driven through the entry point with the fake venue (``test_startup_account_check``'s world)."""
 from __future__ import annotations
 
+import io
+import json
 import re
+from decimal import Decimal as D
 
 import pytest
 
-from tests.characterization.test_startup_account_check import _refused, _started, world  # noqa: F401 (a fixture)
+from tests.characterization.test_startup_account_check import (_checkpoint, _refused, _started,  # noqa: F401
+                                                               world)
+from trading.adapters.sqlite.entry_pause import SqliteEntryPauses
 
 TIER = {"bracket": 1, "notionalFloor": 0, "cum": 0.0}
 
@@ -80,3 +85,121 @@ def test_the_tier_is_read_for_twice_each_symbols_share_of_the_strategy_capital(w
         _started(world)
     else:
         _refused(world, re.escape("ETHUSDT: protective stop 4.50%"))
+
+
+# -- audit of D1 (2026-11-19) -----------------------------------------------------------------------------------
+class Alerts:
+    channel = "telegram"
+
+    def __init__(self):
+        self.sent = []
+
+    def deliver(self, title, detail="", *, timeout_s):
+        self.sent.append((title, detail))
+        return True
+
+    def alert(self, level, title, detail=""):
+        self.sent.append((title, detail))
+
+
+def _alerts(monkeypatch):
+    from trading.infrastructure.cli import target as cli
+    alerts = Alerts()
+    monkeypatch.setattr(cli, "make_notifier", lambda secrets: alerts)
+    return alerts
+
+
+def _hold(world, symbol, qty):  # noqa: F811
+    _checkpoint(world, symbol, qty)
+    world["fake"].positions[symbol] = D(qty)
+
+
+def _paused(world):  # noqa: F811
+    pauses = SqliteEntryPauses(world["state"] / "state.sqlite")
+    return {s: pauses.reason(s) for s in ("BTCUSDT", "ETHUSDT")}
+
+
+def test_a_held_symbol_that_becomes_unfit_pauses_entries_and_the_start_goes_on(world, monkeypatch):  # noqa: F811
+    """M1: refusing would leave the held position with no runtime to reduce, flatten or stop it."""
+    alerts = _alerts(monkeypatch)
+    _hold(world, "ETHUSDT", "-0.5")
+    world["fake"].contract["ETHUSDT"] = {"deliveryDate": 1_795_500_000_000}
+    _started(world)
+    paused = _paused(world)
+    assert paused["BTCUSDT"] is None
+    assert paused["ETHUSDT"].startswith("contract not fit to trade (plan D1): ETHUSDT: delisting scheduled")
+    titles = [title for title, _ in alerts.sent]
+    assert "entries paused at start: contracts not fit to trade" in titles
+    assert "execution start refused" not in titles
+
+
+def test_with_a_held_position_unreadable_tiers_pause_every_symbol_instead_of_refusing(world,  # noqa: F811
+                                                                                   monkeypatch):
+    _alerts(monkeypatch)
+    _hold(world, "BTCUSDT", "0.1")
+    world["fake"].bracket_error = True
+    _started(world)
+    assert all(cause and "margin tiers unknown" in cause for cause in _paused(world).values())
+
+
+def test_without_a_held_position_an_unfit_symbol_still_refuses_and_pauses_nothing(world):  # noqa: F811
+    _checkpoint(world, "BTCUSDT", "0")                       # a flat ledger position is not a held one
+    world["fake"].contract["ETHUSDT"] = {"status": "SETTLING"}
+    _refused(world, re.escape("ETHUSDT: not trading (settling)"))
+    assert _paused(world) == {"BTCUSDT": None, "ETHUSDT": None}
+
+
+def test_a_symbol_missing_from_the_tiers_answer_refuses_the_start(world):  # noqa: F811
+    fake = world["fake"]
+    signed = fake.request_signed
+
+    def without_eth(*, method, path, params=None):
+        rows = signed(method=method, path=path, params=params)
+        return [r for r in rows if r["symbol"] != "ETHUSDT"] if path == "/fapi/v1/leverageBracket" else rows
+    fake.request_signed = without_eth
+    _refused(world, re.escape("ETHUSDT: margin tiers unknown"))
+
+
+def test_the_contract_check_runs_on_mainnet(tmp_path, monkeypatch):
+    """A signed, passed spec on mainnet reaches the contract check (it is not a testnet-only check)."""
+    from lab.strategy import StrategySpec
+    import runner.binance_target as entry
+    from infra.model_signing import sign_file
+    from tests.characterization.test_startup_account_check import Recording, Started, T0
+    from tests.unit.binance.fake_venue import make_bars
+    from trading.adapters.binance import adapter as binance
+    from trading.infrastructure import bootstrap
+    from trading.infrastructure import state_dir as managed
+    scope = "binance-main-ut"
+    for name in ("QUANT_ALLOW_UNSIGNED_MODELS", "BINANCE_EXCHANGE_LEVERAGE", "BINANCE_MARGIN_TYPE",
+                 "MAX_DAILY_DRAWDOWN_PCT", "MAX_WEEKLY_DRAWDOWN_PCT", "BINANCE_TESTNET_API_KEY",
+                 "BINANCE_TESTNET_API_SECRET"):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in (("QUANT_MODEL_SIGN_KEY", "test-key"), ("RISK_SCOPE", scope), ("BINANCE_TESTNET", "0"),
+                        ("BINANCE_API_KEY", "k"), ("BINANCE_API_SECRET", "s"), ("STRATEGY_CAPITAL_USDT", "150"),
+                        ("TELEGRAM_BOT_TOKEN", "123:tok"), ("TELEGRAM_CHAT_ID", "42"),
+                        ("HEARTBEAT_URL", "https://hc.example.invalid/ping/x")):
+        monkeypatch.setenv(name, value)
+    alerts = _alerts(monkeypatch)
+    fake = Recording(make_bars(10), clock=lambda: T0)
+    fake.contract["ETHUSDT"] = {"status": "SETTLING"}
+
+    class Adapter(binance.BinanceAdapter):
+        def __init__(self, config, client=None):
+            super().__init__(config, client=fake)
+
+    def stand_in(**kwargs):
+        raise Started()
+    monkeypatch.setattr(bootstrap, "BinanceAdapter", Adapter)
+    monkeypatch.setattr(entry, "TargetRuntime", stand_in)
+    state = tmp_path / "state"
+    assert managed.main(["--state-dir", str(state), "init"], stdout=io.StringIO(),
+                        env={"RISK_SCOPE": scope, "BINANCE_TESTNET": "0"}) == 0
+    spec = tmp_path / "spec.json"
+    spec.write_text(json.dumps({"schema": 1, "kind": "btc_eth_multitimeframe_target",
+                                "symbols": ["BTCUSDT", "ETHUSDT"], "spec": StrategySpec().record(), "passed": True}))
+    sign_file(spec)
+    with pytest.raises(RuntimeError, match=re.escape("ETHUSDT: not trading (settling)")):
+        entry.main(["--spec", str(spec), "--enable-execution", "--state-dir", str(state)])
+    assert [r for r in fake.requests if r[0] != "GET"] == []
+    assert ("execution start refused", ) == tuple(t for t, _ in alerts.sent if t == "execution start refused")
