@@ -34,8 +34,8 @@ from trading.application.execution.stops import ProtectiveStopManager, StopVenue
 from trading.application.account_ownership import foreign_holdings
 from trading.application.issues import Issue
 from trading.application.mode_policy import ModePolicy
-from trading.application.ports import (AccountSnapshot, Clock, EntryPauses, EventLog, ExchangeAccount, FundingIncome,
-                                       KillLatch, OrderGateway, Sleeper)
+from trading.application.ports import (AccountSnapshot, Clock, ContractInfo, EntryPauses, EventLog, ExchangeAccount,
+                                       FundingIncome, KillLatch, OrderGateway, Sleeper)
 from trading.application.risk.entry_gate import CompositeRiskGate
 from trading.application.risk.exposure_gate import AccountExposureGate
 from trading.application.risk.loss_stop import StrategyLossStop, strategy_unrealized
@@ -44,6 +44,7 @@ from trading.application.risk.readiness import EntryReadinessGate
 from trading.application.session import ExecutionParts, LotRules, SizingEquity, TargetSession
 from trading.application.execution.recorded_journal import RecordedOrderJournal
 from trading.application.reset_wait import waits_for_reset
+from trading.domain.contracts import contract_problems
 from trading.domain.issues import AFTER_STOP_PAUSE
 from trading.domain.orders import LIMIT_OFFSET_BPS, OrderIntent
 from trading.domain.strategy.base import Strategy
@@ -117,6 +118,35 @@ def refuse_mainnet_symbols(*, testnet: bool, symbols: Sequence[str]) -> None:
     if not testnet and other:
         raise RuntimeError(f"mainnet trades only BTCUSDT and ETHUSDT (owner 2026-11-17); the spec also lists "
                            f"{', '.join(other)}; mainnet execution refused")
+
+
+TIER_HEADROOM = Decimal(2)          # plan D1: the margin tier is read for twice the planned position (the base grows)
+
+
+def planned_notional(strategy_capital: Decimal | None, strategy_leverage: Decimal, count: int) -> Decimal:
+    """The position each symbol's margin tier is checked at: twice its share of the strategy capital times the
+    strategy leverage; without a strategy capital (the testnet only) the first tier."""
+    if strategy_capital is None:
+        return Decimal(0)
+    return Decimal(strategy_capital) * Decimal(strategy_leverage) / Decimal(count) * TIER_HEADROOM
+
+
+def refuse_unsafe_contracts(account: ContractInfo, *, symbols: Sequence[str], stop_pct: Decimal, leverage: int,
+                            margin: str | None, notional: Decimal) -> None:
+    """Plan D1: every symbol must be a trading USDT perpetual (crypto or TradFi) with no delisting scheduled, allow
+    the configured exchange leverage and, with isolated margin, keep the stop inside half the liquidation distance at
+    its own maintenance margin tier. Read-only, before the runtime is built; unknown tiers refuse."""
+    contracts = account.contracts()
+    try:
+        tiers = account.get_margin_tiers()
+    except Exception as exc:
+        raise RuntimeError(f"margin tiers could not be read ({type(exc).__name__}: {exc}); execution refused") \
+            from exc
+    problems = [problem for symbol in symbols
+                for problem in contract_problems(symbol, contracts.get(symbol), tiers.get(symbol), stop_pct=stop_pct,
+                                                 leverage=leverage, margin=margin, notional=notional)]
+    if problems:
+        raise RuntimeError("contracts not fit to trade; execution refused: " + "; ".join(problems))
 
 
 def account_checker(account: AccountSnapshot, *, state_dir: Path, scope: str, symbols: Sequence[str], leverage: int,
