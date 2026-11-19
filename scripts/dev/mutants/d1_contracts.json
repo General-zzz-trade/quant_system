@@ -176,8 +176,8 @@
  [
   "L2: malformed date breaks connect",
   "trading/adapters/binance/adapter.py",
-  "    except (TypeError, ValueError):          # audit of D1, L2",
-  "    except (TypeError,):          # audit of D1, L2"
+  "    except (TypeError, ValueError, OverflowError):   # audit of D1, L2",
+  "    except (TypeError, OverflowError):   # audit of D1, L2"
  ],
  [
   "M1: a held position refuses anyway",
@@ -220,5 +220,41 @@
   "scripts/pilot_check.py",
   "Decimal(values.get(\"STRATEGY_LEVERAGE\", \"\").strip() or \"1\")",
   "Decimal(\"1\")"
+ ],
+ [
+  "N1: unsettled orders not held",
+  "trading/infrastructure/target.py",
+  "                 if ledger.orders(owner, unresolved=True)}",
+  "                 if False}"
+ ],
+ [
+  "N1: venue positions not held",
+  "trading/infrastructure/target.py",
+  "if p.symbol in symbols and p.qty != 0}",
+  "if False}"
+ ],
+ [
+  "N2: the contract pause ends by itself",
+  "trading/infrastructure/target.py",
+  "            pauses.pause(symbol, cause)\n",
+  "            pauses.pause(symbol, cause, ends_at=time.time() + 14400)\n"
+ ],
+ [
+  "N3: a pause write error escapes unwrapped",
+  "trading/infrastructure/target.py",
+  "        except Exception as exc:\n            raise RuntimeError(f\"{symbol}: the entry pause",
+  "        except ArithmeticError as exc:\n            raise RuntimeError(f\"{symbol}: the entry pause"
+ ],
+ [
+  "N5: the pilot checks the first tier",
+  "scripts/pilot_check.py",
+  "        notional = planned_notional(Decimal(capital) if capital else None,",
+  "        notional = Decimal(0) if True else planned_notional(Decimal(capital) if capital else None,"
+ ],
+ [
+  "N7: an infinite date breaks connect",
+  "trading/adapters/binance/adapter.py",
+  "    except (TypeError, ValueError, OverflowError):   # audit of D1, L2",
+  "    except (TypeError, ValueError):   # audit of D1, L2"
  ]
 ]
