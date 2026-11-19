@@ -162,14 +162,35 @@ def refuse_unsafe_contracts(account: ContractInfo, *, symbols: Sequence[str], st
     return problems
 
 
-def contract_gate(account: ContractInfo, *, state_dir: Path, scope: str, symbols: Sequence[str], stop_pct: Decimal,
+class StartAccount(ContractInfo, AccountSnapshot, Protocol):
+    """What the start-up's contract gate reads: the contracts, the margin tiers and the venue's positions."""
+
+
+def contract_gate(account: StartAccount, *, state_dir: Path, scope: str, symbols: Sequence[str], stop_pct: Decimal,
                   leverage: int, margin: str | None, notional: Decimal) -> dict[str, list[str]]:
-    """``refuse_unsafe_contracts`` with the scope's ledger and entry pauses (the start-up's call)."""
+    """``refuse_unsafe_contracts`` with the scope's ledger and entry pauses (the start-up's call, after the account
+    check so a refused start leaves no pause behind - re-audit of D1, N4). Held: a non-zero ledger position, an
+    unsettled strategy order (a fill not yet booked, N1) or a venue position on a spec symbol. Every failure to read
+    them or to write a pause is a refusal (N3)."""
     ledger = SqliteOrderJournal(Path(state_dir) / STATE_DB, scope)
     pauses = SqliteEntryPauses(Path(state_dir) / STATE_DB)
+    try:
+        held = held_symbols(ledger, symbols)
+        held |= {owner[len(OWNER_PREFIX):] for owner in strategy_owners(ledger, symbols)
+                 if ledger.orders(owner, unresolved=True)}
+        held |= {p.symbol for p in account.get_positions(strict=True) if p.symbol in symbols and p.qty != 0}
+    except Exception as exc:
+        raise RuntimeError(f"the strategy ledger or the venue's positions could not be read ({type(exc).__name__}: "
+                           f"{exc}); execution refused") from exc
+
+    def pause(symbol: str, cause: str) -> None:
+        try:
+            pauses.pause(symbol, cause)
+        except Exception as exc:
+            raise RuntimeError(f"{symbol}: the entry pause could not be written ({type(exc).__name__}: {exc}); "
+                               "execution refused") from exc
     return refuse_unsafe_contracts(account, symbols=symbols, stop_pct=stop_pct, leverage=leverage, margin=margin,
-                                   notional=notional, held=held_symbols(ledger, symbols),
-                                   pause=lambda symbol, cause: pauses.pause(symbol, cause))
+                                   notional=notional, held=held, pause=pause)
 
 
 def account_checker(account: AccountSnapshot, *, state_dir: Path, scope: str, symbols: Sequence[str], leverage: int,

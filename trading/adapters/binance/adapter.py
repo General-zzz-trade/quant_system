@@ -636,7 +636,7 @@ def parse_contract(entry: dict[str, Any]) -> Contract:
     scheduled delisting (fail closed)."""
     try:
         delivery = int(entry.get("deliveryDate") or 0)
-    except (TypeError, ValueError):          # audit of D1, L2: one odd contract never stops the connection
+    except (TypeError, ValueError, OverflowError):   # audit of D1, L2: one odd contract never stops the connection
         delivery = 0
     return Contract(symbol=str(entry["symbol"]), kind=_CONTRACT_KINDS.get(entry.get("contractType", ""), "other"),
                     state=_CONTRACT_STATES.get(entry.get("status", ""), "other"),
