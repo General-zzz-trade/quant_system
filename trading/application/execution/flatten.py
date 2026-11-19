@@ -66,7 +66,10 @@ class Flattener:
         self._sent_at: float | None = None
         self._waiting_bar: int | None = None  # after MAX_FAILURES: the bar whose attempt has been used
 
-    def flatten(self, reason: str, *, bar: Bar, ledger: Callable[[], Decimal], consume: Callable[[], None]) -> None:
+    def flatten(self, reason: str, *, bar: Bar, ledger: Callable[[], Decimal], consume: Callable[[], None],
+                position: PositionView | None = None, may_hold: bool = True) -> None:
+        """``position``: the symbol's row in the exit side's account snapshot, if it has one; ``may_hold``: without a
+        row, whether the symbol could hold something (plan D2, ``_venue_qty``)."""
         try:
             self.executor.cancel_entries(self.symbol)
             consume()
@@ -75,7 +78,7 @@ class Flattener:
         if self._reduction_unresolved():
             return                            # never a second reduction while one is unresolved
         self._count_last(bar)
-        qty = self._venue_qty() if reason in EMERGENCY else ledger()
+        qty = self._venue_qty(ledger, position, may_hold) if reason in EMERGENCY else ledger()
         if qty is None:
             return
         if qty == 0:
@@ -110,9 +113,22 @@ class Flattener:
             self.events.write(EventKind.ALERT, symbol=self.symbol, reason=reason, failures=self.failures)
             logger.error("%s: %s", self.symbol, reason)
 
-    def _venue_qty(self) -> Decimal | None:
+    def _venue_qty(self, ledger: Callable[[], Decimal], position: PositionView | None,
+                   may_hold: bool) -> Decimal | None:
         """The venue position to close; None (nothing sent, the issue blocks entries) when it cannot be read or the
-        answer has no row for the symbol: unknown is never flat (S4-S5 audit, finding 7)."""
+        answer has no row for the symbol: unknown is never flat (S4-S5 audit, finding 7).
+
+        Plan D2: from the snapshot row when there is one, so a flat symbol sends and reads nothing - unless the ledger
+        holds what the row does not show (a fill since the snapshot): then the venue is asked. Without a row, only a
+        symbol that could hold something reads its own; any other sends nothing and reports nothing, because what
+        it holds would not be the strategy's (the whole-account check finds it and blocks every entry). The close
+        itself is sized from a fresh read when it is sent (``size_reduction``)."""
+        if position is not None:
+            qty = Decimal(str(position.qty))
+            if qty != 0 or ledger() == 0:
+                return qty
+        elif not may_hold:
+            return None
         try:
             position = self.account.get_position(self.symbol)
         except Exception as exc:

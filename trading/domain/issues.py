@@ -31,7 +31,9 @@ class IssueKind(Enum):
     CANCEL_FAILED = "cancel_failed"          # cancelling resting entries raised; tried again likewise
     DECISION_FAILED = "decision_failed"      # one symbol's bar could not be processed; the next bar tries again
     FUNDING_INTERVAL_UNKNOWN = "funding_interval_unknown"   # the symbol's settlement interval is not known (R4)
-    POSITIONS_UNREAD = "positions_unread"    # the one read of every position failed; each symbol reads its own (R5)
+    # the one read of every position failed, or has no row for an idle symbol; only the symbols that could hold
+    # something read their own (R5, D2)
+    POSITIONS_UNREAD = "positions_unread"
     CYCLE_FAILED = "cycle_failed"            # a whole block of the cycle (market, exit or status side) raised
     EVENT_LOG_FAILED = "event_log_failed"    # the event log cannot be written; exits go on (S3 audit finding 3)
     STRATEGY_LOSS_STOP = "strategy_loss_stop"    # the loss stop: loss unknown, reached, or its switch not set

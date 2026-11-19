@@ -148,7 +148,7 @@ class Session:
             raise RuntimeError("journal unreadable")
         self.log.append(("consume", self.symbol))
 
-    def _reconcile(self, symbol, positions=None):
+    def _reconcile(self, symbol, positions=None, *, venue_reads=True):
         self.log.append(("reconcile", symbol, positions))
         return []
 
