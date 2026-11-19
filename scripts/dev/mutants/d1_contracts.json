@@ -32,26 +32,26 @@
  [
   "max leverage equal refused",
   "trading/domain/contracts.py",
-  "    if tiers.max_leverage() < leverage:",
-  "    if tiers.max_leverage() <= leverage:"
+  "    first_ok = tiers.max_leverage() >= leverage",
+  "    first_ok = tiers.max_leverage() > leverage"
  ],
  [
   "isolated rule skipped",
   "trading/domain/contracts.py",
-  "    if margin == \"ISOLATED\":",
-  "    if margin == \"CROSSED\":"
+  "    if margin == \"ISOLATED\":\n        limit",
+  "    if margin == \"CROSSED\":\n        limit"
  ],
  [
   "whole distance allowed",
   "trading/domain/contracts.py",
-  "            limit = fraction * liquidation_distance(",
-  "            limit = liquidation_distance("
+  "        limit = fraction * liquidation_distance(leverage, float(rate))",
+  "        limit = liquidation_distance(leverage, float(rate))"
  ],
  [
   "fixed 0.5 % rate again",
   "trading/domain/contracts.py",
-  "liquidation_distance(leverage, float(bracket.maintenance_rate))",
-  "liquidation_distance(leverage, 0.005)"
+  "        limit = fraction * liquidation_distance(leverage, float(rate))",
+  "        limit = fraction * liquidation_distance(leverage, 0.005)"
  ],
  [
   "tier cap inclusive",
@@ -92,31 +92,133 @@
  [
   "tiers not sorted",
   "trading/adapters/binance/adapter.py",
-  "                              key=lambda b: b.floor)",
-  "                              key=lambda b: -b.floor)"
+  "                          key=lambda b: b.floor)",
+  "                          key=lambda b: -b.floor)"
  ],
  [
   "unreadable tiers read as none",
   "trading/infrastructure/target.py",
-  "    except Exception as exc:\n        raise RuntimeError(f\"margin tiers could not be read",
-  "    except Exception as exc:\n        return\n        raise RuntimeError(f\"margin tiers could not be read"
+  "        if not held or pause is None:\n            raise RuntimeError(f\"margin tiers could not be read",
+  "        if False:\n            raise RuntimeError(f\"margin tiers could not be read"
  ],
  [
   "no headroom",
-  "trading/infrastructure/target.py",
+  "trading/domain/contracts.py",
   "/ Decimal(count) * TIER_HEADROOM",
   "/ Decimal(count)"
  ],
  [
   "strategy leverage ignored",
-  "trading/infrastructure/target.py",
+  "trading/domain/contracts.py",
   "return Decimal(strategy_capital) * Decimal(strategy_leverage)",
   "return Decimal(strategy_capital)"
  ],
  [
   "check not called",
   "trading/infrastructure/cli/target.py",
-  "                target.refuse_unsafe_contracts(       # plan D1",
-  "                (lambda *a, **k: None)(       # plan D1"
+  "                paused = target.contract_gate(        # plan D1",
+  "                paused = {} or (lambda *a, **k: {})(        # plan D1"
+ ],
+ [
+  "audit: leverage rule skipped when isolated",
+  "trading/domain/contracts.py",
+  "    if not first_ok:\n",
+  "    if not first_ok and margin != \"ISOLATED\":\n"
+ ],
+ [
+  "audit: a zero delisting time passes",
+  "trading/domain/contracts.py",
+  "    if contract.delisting_at is not None:",
+  "    if contract.delisting_at:"
+ ],
+ [
+  "audit: quote read as USDT always",
+  "trading/adapters/binance/adapter.py",
+  "quote=str(entry.get(\"quoteAsset\", \"\")),",
+  "quote=\"USDT\","
+ ],
+ [
+  "audit: unknown status reads open",
+  "trading/adapters/binance/adapter.py",
+  "_CONTRACT_STATES.get(entry.get(\"status\", \"\"), \"other\")",
+  "_CONTRACT_STATES.get(entry.get(\"status\", \"\"), \"open\")"
+ ],
+ [
+  "audit: a missing symbol borrows BTC's tiers",
+  "trading/infrastructure/target.py",
+  "tiers.get(symbol), stop_pct=stop_pct",
+  "tiers.get(symbol, tiers.get(\"BTCUSDT\")), stop_pct=stop_pct"
+ ],
+ [
+  "audit: check only on the testnet",
+  "trading/infrastructure/cli/target.py",
+  "                paused = target.contract_gate(        # plan D1",
+  "                paused = {} if not testnet else target.contract_gate(        # plan D1"
+ ],
+ [
+  "L3: tier leverage not checked",
+  "trading/domain/contracts.py",
+  "    if first_ok and bracket.max_leverage < leverage:",
+  "    if False:"
+ ],
+ [
+  "L5: unusable rate passes",
+  "trading/domain/contracts.py",
+  "    if not (rate.is_finite() and 0 <= rate < Decimal(1) / Decimal(leverage)):",
+  "    if False:"
+ ],
+ [
+  "L5: only infinite rates refused",
+  "trading/domain/contracts.py",
+  "    if not (rate.is_finite() and 0 <= rate < Decimal(1) / Decimal(leverage)):",
+  "    if not rate.is_finite():"
+ ],
+ [
+  "L2: malformed date breaks connect",
+  "trading/adapters/binance/adapter.py",
+  "    except (TypeError, ValueError):          # audit of D1, L2",
+  "    except (TypeError,):          # audit of D1, L2"
+ ],
+ [
+  "M1: a held position refuses anyway",
+  "trading/infrastructure/target.py",
+  "    if not held or pause is None:\n        raise RuntimeError(\"contracts not fit",
+  "    if True:\n        raise RuntimeError(\"contracts not fit"
+ ],
+ [
+  "M1: nothing paused",
+  "trading/infrastructure/target.py",
+  "        pause(symbol, \"contract not fit to trade (plan D1): \"",
+  "        print(symbol, \"contract not fit to trade (plan D1): \""
+ ],
+ [
+  "M1: a flat ledger counts as held",
+  "trading/infrastructure/target.py",
+  "if checkpoint is not None and Decimal(str(checkpoint[\"position\"][\"qty\"])) != 0:",
+  "if checkpoint is not None:"
+ ],
+ [
+  "M1: no alert for the pauses",
+  "trading/infrastructure/cli/target.py",
+  "                if paused:                            # a held position",
+  "                if False:                            # a held position"
+ ],
+ [
+  "pilot: contract rule skipped",
+  "scripts/pilot_check.py",
+  "    items += contract_items(client, values, symbols)\n",
+  "    items += []\n"
+ ],
+ [
+  "pilot: margin read in lower case",
+  "scripts/pilot_check.py",
+  "margin = values.get(\"BINANCE_MARGIN_TYPE\", \"\").strip().upper() or None",
+  "margin = values.get(\"BINANCE_MARGIN_TYPE\", \"\").strip().lower() or None"
+ ],
+ [
+  "pilot: strategy leverage ignored",
+  "scripts/pilot_check.py",
+  "Decimal(values.get(\"STRATEGY_LEVERAGE\", \"\").strip() or \"1\")",
+  "Decimal(\"1\")"
  ]
 ]
