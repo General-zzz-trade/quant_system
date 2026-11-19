@@ -227,7 +227,7 @@ class ExitSupervisor:
                 write_issue(self.journal, symbol, issue)
             flatten = with_effect(issues, Effect.FLATTEN_SYMBOL)
             if flatten:
-                self._exit(symbol, session, flatten[0].kind.value, may_hold=active[symbol])
+                self._exit(symbol, session, flatten[0].kind.value)
             refused = Issue(K.MARKET_REFUSED, symbol, f"{symbol}: {refused_text}") if refused_text is not None \
                 else None
             if refused is not None:
@@ -405,20 +405,19 @@ class ExitSupervisor:
             self._exit_observer(symbol, *exit_)
         self._risk_exits[symbol] = exit_
 
-    def _exit(self, symbol: str, session: TargetSession, reason: str | None, *, may_hold: bool | None = None) -> None:
+    def _exit(self, symbol: str, session: TargetSession, reason: str | None) -> None:
         """Flatten (or, without a reason, only cancel resting entries). A failure is reported, never raised:
         one symbol's broken exit must not stop the other symbol's, nor the next cycle.
 
         Plan D2: the flatten takes the venue quantity from the last reconciliation's snapshot; without a row there
-        only a symbol that could hold something (``may_hold``, else ``active``) reads its own."""
+        only a symbol that could hold something (``active``) reads its own."""
         try:
             if reason is None:
                 session.cancel_entries()
             else:
                 positions = self.positions
                 row = positions.get(symbol) if positions is not None else None
-                if may_hold is None:            # with a row it is not asked
-                    may_hold = row is not None or self.active(symbol, session, positions)
+                may_hold = row is not None or self.active(symbol, session, positions)   # with a row: not asked
                 session.flatten(reason, now_ms=int(self.clock() * 1000), position=row, may_hold=may_hold)
             self.exit_errors.pop(symbol, None)
         except Exception as exc:
