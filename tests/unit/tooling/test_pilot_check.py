@@ -166,3 +166,29 @@ def test_hedge_mode_is_named(tmp_path, monkeypatch):
                            "/fapi/v1/positionSide/dual": lambda q: {"dualSidePosition": True}})
     code, out, _ = _run(tmp_path, monkeypatch, venue=venue)
     assert code == 1 and any(line.startswith("✗") and "单向" in line for line in out.splitlines())
+
+
+# -- plan D1 (audit L7): the same contract rule the runtime's start applies --------------------------------------
+def test_each_spec_symbols_contract_and_margin_tier_pass_on_a_ready_account(tmp_path, monkeypatch):
+    code, out, venue = _run(tmp_path, monkeypatch)
+    assert code == 0
+    assert "✓ BTCUSDT：合约和保证金档位（正在交易、没安排下架、按 300 USDT 的档位允许 10 倍和止损）" in out
+    paths = {(path, "X-MBX-APIKEY" in headers) for _, path, _, headers in venue.calls}
+    assert ("/fapi/v1/exchangeInfo", False) in paths and ("/fapi/v1/leverageBracket", True) in paths
+
+
+def test_a_delisting_or_a_tier_that_puts_the_stop_beyond_half_the_distance_is_named(tmp_path, monkeypatch):
+    info = {"symbols": [{"symbol": "BTCUSDT", "status": "TRADING", "contractType": "PERPETUAL", "quoteAsset": "USDT",
+                         "deliveryDate": 4133404800000},
+                        {"symbol": "ETHUSDT", "status": "TRADING", "contractType": "PERPETUAL", "quoteAsset": "USDT",
+                         "deliveryDate": 1_795_500_000_000}]}
+    tiers = [{"symbol": "BTCUSDT", "brackets": [{"bracket": 1, "initialLeverage": 20, "notionalCap": 5000,
+                                                 "notionalFloor": 0, "maintMarginRatio": 0.02, "cum": 0}]},
+             {"symbol": "ETHUSDT", "brackets": [{"bracket": 1, "initialLeverage": 125, "notionalCap": 50000,
+                                                 "notionalFloor": 0, "maintMarginRatio": 0.004, "cum": 0}]}]
+    venue = Venue(answers={"/fapi/v2/positionRisk": lambda q: READY_POSITIONS, "/fapi/v1/exchangeInfo": lambda q: info,
+                           "/fapi/v1/leverageBracket": lambda q: tiers})
+    code, out, _ = _run(tmp_path, monkeypatch, venue=venue)
+    assert code != 0
+    assert "✗ BTCUSDT：合约和保证金档位（BTCUSDT: protective stop 4.50% is not inside 50%" in out
+    assert "✗ ETHUSDT：合约和保证金档位（ETHUSDT: delisting scheduled at 2026-11-24" in out

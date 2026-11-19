@@ -109,6 +109,7 @@ def account_items(client: Any, values: Mapping[str, str], symbols: list[str]) ->
         ok = lev == want_lev and margin == want_margin
         items.append(_item(ok, f"{symbol}：杠杆 {lev} 倍、{margin}（设置要求 {want_lev or '没设'} 倍、"
                                f"{want_margin or '没设'}）"))
+    items += contract_items(client, values, symbols)
     account = client.get(FAPI, "/fapi/v2/account")
     wallet = next((Decimal(str(a.get("walletBalance") or 0)) for a in account.get("assets", [])
                    if a.get("asset") == "USDT"), Decimal(0))
@@ -118,6 +119,33 @@ def account_items(client: Any, values: Mapping[str, str], symbols: list[str]) ->
     except InvalidOperation:
         enough = False
     items.append(_item(enough, f"USDT 余额 {wallet} 不少于策略资金 {capital or '没设'}"))
+    return items
+
+
+def contract_items(client: Any, values: Mapping[str, str], symbols: list[str]) -> list[tuple[bool, str]]:
+    """Plan D1: the runtime's start rule for each spec symbol, from the same public contract list and signed margin
+    tiers (read-only), so this check fails where the start would."""
+    from trading.adapters.binance.adapter import parse_contract, parse_margin_tiers
+    from trading.domain.contracts import contract_problems, planned_notional
+    info = client.get(FAPI, "/fapi/v1/exchangeInfo", signed=False)
+    contracts = {e["symbol"]: parse_contract(e) for e in info.get("symbols", [])}
+    tiers = parse_margin_tiers(client.get(FAPI, "/fapi/v1/leverageBracket"))
+    try:
+        capital = values.get("STRATEGY_CAPITAL_USDT", "").strip()
+        notional = planned_notional(Decimal(capital) if capital else None,
+                                    Decimal(values.get("STRATEGY_LEVERAGE", "").strip() or "1"), max(len(symbols), 1))
+        stop = Decimal(values.get("STOP_PCT", "").strip() or "0.08")
+        leverage = int(values.get("BINANCE_EXCHANGE_LEVERAGE", "").strip() or "3")
+    except (InvalidOperation, ValueError):
+        return [_item(False, "合约检查要的设置读不出（STRATEGY_CAPITAL_USDT、STRATEGY_LEVERAGE、STOP_PCT、"
+                             "BINANCE_EXCHANGE_LEVERAGE）")]
+    margin = values.get("BINANCE_MARGIN_TYPE", "").strip().upper() or None
+    items = []
+    for symbol in symbols:
+        found = contract_problems(symbol, contracts.get(symbol), tiers.get(symbol), stop_pct=stop, leverage=leverage,
+                                  margin=margin, notional=notional)
+        fine = f"正在交易、没安排下架、按 {notional} USDT 的档位允许 {leverage} 倍和止损"
+        items.append(_item(not found, f"{symbol}：合约和保证金档位（{'；'.join(found) if found else fine}）"))
     return items
 
 

@@ -55,6 +55,9 @@ ALLOWED = {
     (FAPI, "/fapi/v1/feeBurn", True),
     (FAPI, "/fapi/v1/commissionRate", True),
     (FAPI, "/fapi/v1/apiTradingStatus", True),
+    # The pilot check's contract rule (plan D1): the public contract list and the signed margin tiers, GET only.
+    (FAPI, "/fapi/v1/exchangeInfo", False),
+    (FAPI, "/fapi/v1/leverageBracket", True),
     (SAPI, "/sapi/v1/account/apiRestrictions", True),
     # The history export (tech lead 2026-11-16, scripts/account_history.py): the account's own records, GET only.
     # The report's funding income section asks the income history too.

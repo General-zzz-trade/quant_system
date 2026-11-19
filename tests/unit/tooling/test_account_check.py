@@ -18,6 +18,13 @@ CANNED = {
     "/sapi/v1/account/apiRestrictions": {"ipRestrict": True, "enableReading": True, "enableFutures": True,
                                          "enableWithdrawals": False},
     "/fapi/v1/time": {"serverTime": 1_800_000_000_000},
+    # plan D1: the contract list (public) and the margin tiers (signed) the pilot check reads
+    "/fapi/v1/exchangeInfo": {"symbols": [
+        {"symbol": s, "status": "TRADING", "contractType": "PERPETUAL", "quoteAsset": "USDT",
+         "deliveryDate": 4133404800000} for s in ("BTCUSDT", "ETHUSDT")]},
+    "/fapi/v1/leverageBracket": [
+        {"symbol": s, "brackets": [{"bracket": 1, "initialLeverage": 125, "notionalCap": 50000, "notionalFloor": 0,
+                                    "maintMarginRatio": 0.004, "cum": 0.0}]} for s in ("BTCUSDT", "ETHUSDT")],
     "/fapi/v2/account": {"canTrade": True, "totalWalletBalance": "167.5", "availableBalance": "150.1",
                          "assets": [{"asset": "USDT", "walletBalance": "167.5", "unrealizedProfit": "-1.2",
                                      "availableBalance": "150.1"},
@@ -208,4 +215,5 @@ def test_an_empty_or_unreadable_income_history_is_reported_not_guessed(tmp_path)
 
 def test_the_income_request_is_on_the_allowlist_as_a_signed_read():
     assert (ac.FAPI, "/fapi/v1/income", True) in ac.ALLOWED
-    assert all(signed or path == "/fapi/v1/time" for _, path, signed in ac.ALLOWED)
+    # audit of D1, L7: the pilot check also reads the public contract list (no key is sent with it)
+    assert all(signed or path in ("/fapi/v1/time", "/fapi/v1/exchangeInfo") for _, path, signed in ac.ALLOWED)
