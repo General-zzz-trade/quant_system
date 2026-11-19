@@ -363,6 +363,11 @@ that reads the environment. The entry point reads it once into a frozen `Runtime
     it is unknown when the kept rows do not reach back to a first fill or when a symbol's next read would start more
     than 88 days back (24 hours before its kept rows end, or at its first fill when none are kept): the rest can never
     be read, so the total would be partial.
+- Contract check at start (plan D1, `docs/arch/dynamic-universe-plan.md`): in execution, before the account check,
+  every spec symbol must be a trading USDT perpetual (crypto or TradFi) with no delisting scheduled, allow the
+  configured exchange leverage and, isolated, keep the stop inside half the liquidation distance at its own
+  maintenance margin tier (`GET /fapi/v1/leverageBracket`, signed, read-only) for twice its planned position
+  (`trading/domain/contracts.py`, `refuse_unsafe_contracts`); unknown tiers refuse.
 - `DrawdownGuard`: daily and weekly latch that resets at UTC period boundaries.
 - `AccountExposureGate`: the account exposure cap, checked at entry time only: `BINANCE_MAX_LEVERAGE` (3 unless a
   person sets it, `DEFAULT_ACCOUNT_LEVERAGE`), never above `MAX_TOTAL_LEVERAGE`.

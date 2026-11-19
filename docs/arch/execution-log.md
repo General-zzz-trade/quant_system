@@ -5945,3 +5945,42 @@ CLAUDE.md 的现状改为：资金费存储（#147，三轮审计）、主网 BT
 - **CI 一次卡住**：#184 第一次 CI 运行时，第 0 组在 30% 处停了 21 分钟，到 30 分钟上限被取消。
   - 新测试文件让分组重新分配，第 0 组换成了另一批已有测试。
   - 本地按同样分组跑：233 个全过，6 分钟；重跑 CI 全过。原因没查到（CI 机器，或某个已有测试偶发卡住）；再出现就逐个文件查。
+
+## D1 交易所元数据和按品种的爆仓检查（2026-11-19，资金路径：完整流程）
+
+- **依据**：`docs/arch/dynamic-universe-plan.md`（#186），技术负责人 2026-11-19 批准开始 D1。
+- **先核实**【实际运行结果，公开 exchangeInfo，2026-11-19】：
+  - 可交易的 USDT 永续 809 个（加密 567，TradFi 242）；
+  - 状态有 TRADING、SETTLING（137 个已下架）、PENDING_TRADING、TRADING_HALT（一个 TradFi 正在暂停）；
+  - 交割日 2100-12-25 表示没有安排下架；
+  - 5 个合约名是中文（D9 要处理）。
+- **改了什么**：
+  - `trading/domain/contracts.py`：合约记录、保证金档位、单个品种的启动规则 `contract_problems`。规则要求：
+    - 是 USDT 永续（加密或 TradFi）、正在交易、没有安排下架；
+    - 交易所允许配置的杠杆；
+    - 逐仓时，按这个品种计划仓位所在档位的维持保证金率，止损在爆仓距离的一半以内。
+  - 适配器：把交易所的合约词翻译成领域的词；新增签名只读请求 `GET /fapi/v1/leverageBracket`（权重 1）。缺交割日按"已安排下架"处理（失败即关闭）。
+  - 启动检查 `refuse_unsafe_contracts`：执行模式在账户检查之前做，被拒时照常发报警。
+    - 档位按每个品种计划仓位的两倍读：策略资金 × 策略杠杆 ÷ 品种数 × 2，因为资金基数会随盈利变大。
+    - 没有策略资金时（只有测试网允许）取第一档。
+  - 预检里原来按 0.5% 的全局检查保留：它在连接账户之前做，是一道更早的粗检查。
+- **已有测试的改动**：
+  - `tests/architecture/test_rules.py` 的 `EXCHANGE_WORDS` 加了 6 个合约词：领域层和应用层也不许出现这些词（规则更严，不是放宽）。
+    - 原来：`... "STOP_MARKET", "MARK_PRICE", "CONDITIONAL"}`
+    - 现在：多了 `"PERPETUAL", "TRADIFI_PERPETUAL", "TRADING", "TRADING_HALT", "SETTLING", "PENDING_TRADING"`。
+  - 没有改任何断言。
+- **测试辅助的改动**：`tests/unit/binance/fake_venue.py`：
+  - exchangeInfo 每个合约带上类型、状态、计价币和"未安排下架"的交割日，`contract` 可以逐个覆盖；
+  - 新增 `leverageBracket` 的回答（默认 125 倍 / 0.4%，`brackets` 可覆盖，`bracket_error` 让它失败）。
+- **新增测试**：
+  - `tests/unit/trading/test_contracts.py` 14 个；
+  - `tests/unit/binance/test_contract_metadata.py` 3 个；
+  - `tests/characterization/test_startup_contract_check.py` 14 个，从入口跑完整的启动流程。
+- **变异自检**：`scripts/dev/mutants/d1_contracts.json` 20 个，20/20 被抓到。
+  - 跑之前改过两处：一个变异样本写成了不改变任何东西（读不到档位），改正了；"忽略策略杠杆"在原有测试下会存活，补了一个策略杠杆 2 的用例。
+- **本地**：
+  - 相关测试全过（binance、characterization、trading、tooling 全部单元测试）；
+  - `tests/architecture`、mypy 99 个文件、导入约束 5/5、ruff 全仓通过。
+- **没做的（按计划在后面的步骤）**：
+  - 每小时刷新和下架处理（D3）；
+  - `account_check --pilot` 和 `scripts/account_settings.py` 仍用全局检查（D10 一起改）。

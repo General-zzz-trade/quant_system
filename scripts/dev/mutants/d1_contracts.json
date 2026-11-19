@@ -1,0 +1,122 @@
+[
+ [
+  "delivery contracts pass",
+  "trading/domain/contracts.py",
+  "if contract.kind not in PERPETUAL_KINDS or contract.quote != \"USDT\":",
+  "if contract.quote != \"USDT\":"
+ ],
+ [
+  "other quote assets pass",
+  "trading/domain/contracts.py",
+  "if contract.kind not in PERPETUAL_KINDS or contract.quote != \"USDT\":",
+  "if contract.kind not in PERPETUAL_KINDS:"
+ ],
+ [
+  "only settling refused",
+  "trading/domain/contracts.py",
+  "    if contract.state != \"open\":",
+  "    if contract.state == \"settling\":"
+ ],
+ [
+  "delisting ignored",
+  "trading/domain/contracts.py",
+  "    if contract.delisting_at is not None:",
+  "    if False:"
+ ],
+ [
+  "empty tiers pass as known",
+  "trading/domain/contracts.py",
+  "    if tiers is None or not tiers.brackets:",
+  "    if tiers is None:"
+ ],
+ [
+  "max leverage equal refused",
+  "trading/domain/contracts.py",
+  "    if tiers.max_leverage() < leverage:",
+  "    if tiers.max_leverage() <= leverage:"
+ ],
+ [
+  "isolated rule skipped",
+  "trading/domain/contracts.py",
+  "    if margin == \"ISOLATED\":",
+  "    if margin == \"CROSSED\":"
+ ],
+ [
+  "whole distance allowed",
+  "trading/domain/contracts.py",
+  "            limit = fraction * liquidation_distance(",
+  "            limit = liquidation_distance("
+ ],
+ [
+  "fixed 0.5 % rate again",
+  "trading/domain/contracts.py",
+  "liquidation_distance(leverage, float(bracket.maintenance_rate))",
+  "liquidation_distance(leverage, 0.005)"
+ ],
+ [
+  "tier cap inclusive",
+  "trading/domain/contracts.py",
+  "if b.floor <= notional < b.cap",
+  "if b.floor <= notional <= b.cap"
+ ],
+ [
+  "max leverage of the last tier",
+  "trading/domain/contracts.py",
+  "return self.brackets[0].max_leverage if self.brackets else 0",
+  "return self.brackets[-1].max_leverage if self.brackets else 0"
+ ],
+ [
+  "halt read as trading",
+  "trading/adapters/binance/adapter.py",
+  "\"TRADING_HALT\": \"halted\"",
+  "\"TRADING_HALT\": \"open\""
+ ],
+ [
+  "tradfi read as other",
+  "trading/adapters/binance/adapter.py",
+  "\"TRADIFI_PERPETUAL\": \"tradfi\"",
+  "\"TRADIFI_PERPETUAL\": \"other\""
+ ],
+ [
+  "delivery date ignored",
+  "trading/adapters/binance/adapter.py",
+  "delisting_at=None if delivery >= NO_DELISTING_MS else delivery)",
+  "delisting_at=None)"
+ ],
+ [
+  "missing date read as none",
+  "trading/adapters/binance/adapter.py",
+  "delivery = int(entry.get(\"deliveryDate\") or 0)",
+  "delivery = int(entry.get(\"deliveryDate\") or NO_DELISTING_MS)"
+ ],
+ [
+  "tiers not sorted",
+  "trading/adapters/binance/adapter.py",
+  "                              key=lambda b: b.floor)",
+  "                              key=lambda b: -b.floor)"
+ ],
+ [
+  "unreadable tiers read as none",
+  "trading/infrastructure/target.py",
+  "    except Exception as exc:\n        raise RuntimeError(f\"margin tiers could not be read",
+  "    except Exception as exc:\n        return\n        raise RuntimeError(f\"margin tiers could not be read"
+ ],
+ [
+  "no headroom",
+  "trading/infrastructure/target.py",
+  "/ Decimal(count) * TIER_HEADROOM",
+  "/ Decimal(count)"
+ ],
+ [
+  "strategy leverage ignored",
+  "trading/infrastructure/target.py",
+  "return Decimal(strategy_capital) * Decimal(strategy_leverage)",
+  "return Decimal(strategy_capital)"
+ ],
+ [
+  "check not called",
+  "trading/infrastructure/cli/target.py",
+  "                target.refuse_unsafe_contracts(       # plan D1",
+  "                (lambda *a, **k: None)(       # plan D1"
+ ]
+]
