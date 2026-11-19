@@ -11,8 +11,8 @@ from decimal import Decimal as D
 
 import pytest
 
-from tests.characterization.test_startup_account_check import (_checkpoint, _refused, _started,  # noqa: F401
-                                                               world)
+from tests.characterization.test_startup_account_check import (_checkpoint, _refused, _row,  # noqa: F401
+                                                               _started, world)
 from trading.adapters.sqlite.entry_pause import SqliteEntryPauses
 
 TIER = {"bracket": 1, "notionalFloor": 0, "cum": 0.0}
@@ -203,3 +203,74 @@ def test_the_contract_check_runs_on_mainnet(tmp_path, monkeypatch):
         entry.main(["--spec", str(spec), "--enable-execution", "--state-dir", str(state)])
     assert [r for r in fake.requests if r[0] != "GET"] == []
     assert ("execution start refused", ) == tuple(t for t, _ in alerts.sent if t == "execution start refused")
+
+
+# -- re-audit of D1 (2026-11-19) --------------------------------------------------------------------------------
+def test_a_fill_not_yet_booked_counts_as_held_so_recovery_and_its_stop_still_run(world, monkeypatch):  # noqa: F811
+    """N1: a crash between an entry's fill and its booking leaves an unsettled strategy order and a venue position;
+    refusing the start would leave that position without its stop."""
+    _alerts(monkeypatch)
+    _row(world, "i1", "ETHUSDT", side="buy", qty="0.1", settled=0, client_id="cid-1", order_id="501")
+    world["fake"].positions["ETHUSDT"] = D("0.1")
+    world["fake"].contract["ETHUSDT"] = {"deliveryDate": 1_795_500_000_000}
+    _started(world)
+    assert "delisting scheduled" in _paused(world)["ETHUSDT"]
+
+
+def test_the_contract_pause_lasts_until_a_person_releases_it(world, monkeypatch):  # noqa: F811
+    """N2: never a pause that ends by itself (that would raise the risk automatically)."""
+    import sqlite3
+    _alerts(monkeypatch)
+    _hold(world, "ETHUSDT", "-0.5")
+    world["fake"].contract["ETHUSDT"] = {"status": "SETTLING"}
+    _started(world)
+    with sqlite3.connect(world["state"] / "state.sqlite") as db:
+        rows = db.execute("SELECT released_at, release_reason FROM entry_pauses WHERE symbol='ETHUSDT'").fetchall()
+    assert rows == [(None, None)]
+    later = SqliteEntryPauses(world["state"] / "state.sqlite", clock=lambda: 4_102_444_800.0)    # 2100-01-01
+    assert later.reason("ETHUSDT").startswith("contract not fit to trade")
+
+
+def test_a_pause_that_cannot_be_written_refuses_the_start_with_its_alert(world, monkeypatch):  # noqa: F811
+    """N3: the refusal reaches the alert channel like every other start refusal."""
+    import sqlite3
+    alerts = _alerts(monkeypatch)
+    _hold(world, "ETHUSDT", "-0.5")
+    world["fake"].contract["ETHUSDT"] = {"status": "SETTLING"}
+
+    def broken(self, symbol, cause, triggers=(), *, ends_at=None):
+        raise sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(SqliteEntryPauses, "pause", broken)
+    _refused(world, re.escape("ETHUSDT: the entry pause could not be written (OperationalError: database is locked)"))
+    assert "execution start refused" in [title for title, _ in alerts.sent]
+
+
+def test_when_the_account_check_refuses_no_contract_pause_is_left_behind(world, monkeypatch):  # noqa: F811
+    """N4: the account check runs first; a refused start writes no pause a person would have to release."""
+    _alerts(monkeypatch)
+    _hold(world, "ETHUSDT", "-0.5")
+    world["fake"].contract["ETHUSDT"] = {"status": "SETTLING"}
+    world["fake"].leverage["ETHUSDT"] = 10
+    _refused(world, re.escape("ETHUSDT: exchange leverage 10x, configured 3x"))
+    assert _paused(world) == {"BTCUSDT": None, "ETHUSDT": None}
+
+
+def test_an_unsettled_strategy_order_alone_counts_as_held(world, monkeypatch):  # noqa: F811
+    _alerts(monkeypatch)
+    _row(world, "i1", "ETHUSDT", side="buy", qty="0.1", settled=0, client_id="cid-1", order_id="501")
+    world["fake"].contract["ETHUSDT"] = {"status": "SETTLING"}
+    _started(world)
+    assert "not trading (settling)" in _paused(world)["ETHUSDT"]
+
+
+def test_a_venue_position_of_a_fill_stored_but_not_yet_in_the_ledger_counts_as_held(world, monkeypatch):  # noqa: F811
+    from tests.characterization.test_startup_account_check import _journal
+    _alerts(monkeypatch)
+    _row(world, "i1", "ETHUSDT", side="buy", qty="0.1", settled=1, client_id="cid-1", order_id="501")
+    fill = {"fill_id": "f1", "intent_id": "i1", "symbol": "ETHUSDT", "order_id": "501", "trade_id": "1",
+            "side": "buy", "qty": "0.1", "price": "100", "fee": "0", "fee_asset": "USDT"}
+    assert _journal(world).insert_fill(fill_id="f1", intent_id="i1", owner="target.ETHUSDT", payload=fill)
+    world["fake"].positions["ETHUSDT"] = D("0.1")
+    world["fake"].contract["ETHUSDT"] = {"status": "SETTLING"}
+    _started(world)
+    assert "not trading (settling)" in _paused(world)["ETHUSDT"]

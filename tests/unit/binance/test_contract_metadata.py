@@ -82,3 +82,10 @@ def test_one_malformed_contract_does_not_stop_the_connection_and_is_unfit():
     fake.contract = {"ODDUSDT": {"deliveryDate": "2100-12-25"}}
     c = _adapter(fake).contracts()                                         # connect() is asserted in _adapter
     assert c["ODDUSDT"].delisting_at == 0 and c["BTCUSDT"].delisting_at is None
+
+
+def test_an_infinite_delivery_date_does_not_stop_the_connection_either():
+    fake = FakeBinance()
+    fake.listed = ("BTCUSDT", "ETHUSDT", "ODDUSDT")
+    fake.contract = {"ODDUSDT": {"deliveryDate": float("inf")}}
+    assert _adapter(fake).contracts()["ODDUSDT"].delisting_at == 0

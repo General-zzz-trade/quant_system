@@ -192,3 +192,15 @@ def test_a_delisting_or_a_tier_that_puts_the_stop_beyond_half_the_distance_is_na
     assert code != 0
     assert "✗ BTCUSDT：合约和保证金档位（BTCUSDT: protective stop 4.50% is not inside 50%" in out
     assert "✗ ETHUSDT：合约和保证金档位（ETHUSDT: delisting scheduled at 2026-11-24" in out
+
+
+def test_the_pilot_checks_the_tier_of_twice_each_symbols_planned_position(tmp_path, monkeypatch):
+    """150 USDT x 2 over two symbols is 150 a symbol; twice that is 300, the first notional of the 2 % tier."""
+    tiers = [{"symbol": s, "brackets": [
+        {"bracket": 1, "initialLeverage": 125, "notionalCap": 300, "notionalFloor": 0, "maintMarginRatio": 0.004},
+        {"bracket": 2, "initialLeverage": 20, "notionalCap": 5000, "notionalFloor": 300, "maintMarginRatio": 0.02}]}
+        for s in ("BTCUSDT", "ETHUSDT")]
+    venue = Venue(answers={"/fapi/v2/positionRisk": lambda q: READY_POSITIONS,
+                           "/fapi/v1/leverageBracket": lambda q: tiers})
+    code, out, _ = _run(tmp_path, monkeypatch, venue=venue)
+    assert code != 0 and "✗ ETHUSDT：合约和保证金档位（ETHUSDT: protective stop 4.50%" in out
