@@ -398,8 +398,8 @@ def test_finding_3_an_unreadable_journal_refuses():
         def get_open_algo_orders(self):
             return ()
 
-        def get_symbol_settings(self, symbol):
-            return 3, "cross"
+        def get_settings_snapshot(self):
+            return {"BTCUSDT": (3, "cross")}
 
         def get_algo_order(self, *, client_algo_id):
             return None
