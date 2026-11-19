@@ -39,6 +39,12 @@ class FakeBinance:
         self.margin_change_refused = False      # Binance refuses while a position/order is open
         self.posts: list[dict] = []
         self.funding_hours = {"BTCUSDT": 8, "ETHUSDT": 8}    # what /fapi/v1/fundingInfo lists (R4)
+        # plan D1: each listed contract is a trading USDT perpetual with no delisting unless ``contract`` overrides a
+        # field; ``brackets`` overrides a symbol's margin tiers (GET /fapi/v1/leverageBracket); ``bracket_error``
+        # makes that request fail
+        self.contract: dict[str, dict] = {}
+        self.brackets: dict[str, list[dict]] = {}
+        self.bracket_error = False
         self.listed: tuple[str, ...] = ("BTCUSDT", "ETHUSDT")  # what /fapi/v1/exchangeInfo lists (R5: up to 10)
         self.trade_requests: list[dict] = []
         self.income: list[dict] = []            # the account's income history (GET /fapi/v1/income)
@@ -109,7 +115,8 @@ class FakeBinance:
         p = dict(params or {})
         if path == "/fapi/v1/exchangeInfo":
             def info(symbol):
-                return {"symbol": symbol, "filters": [
+                return {"symbol": symbol, "status": "TRADING", "contractType": "PERPETUAL", "quoteAsset": "USDT",
+                        "deliveryDate": 4133404800000, **self.contract.get(symbol, {}), "filters": [
                     {"filterType": "LOT_SIZE", "stepSize": "0.001", "minQty": "0.001"},
                     {"filterType": "MARKET_LOT_SIZE", "stepSize": "0.001", "minQty": "0.001"},
                     {"filterType": "PRICE_FILTER", "tickSize": "0.1"},
@@ -149,6 +156,15 @@ class FakeBinance:
             return {"dualSidePosition": self.hedge}
         if path == "/fapi/v2/account":
             return {"totalMarginBalance": str(self.equity), "assets": []}
+        if path == "/fapi/v1/leverageBracket":
+            if self.bracket_error:
+                raise BinanceRetryableError("HTTP 503: unavailable")
+            low = [{"bracket": 1, "initialLeverage": 125, "notionalCap": 50000, "notionalFloor": 0,
+                    "maintMarginRatio": 0.004, "cum": 0.0},
+                   {"bracket": 2, "initialLeverage": 100, "notionalCap": 250000, "notionalFloor": 50000,
+                    "maintMarginRatio": 0.005, "cum": 50.0}]
+            rows = [{"symbol": s, "brackets": self.brackets.get(s, low)} for s in self.listed]
+            return next(r for r in rows if r["symbol"] == p["symbol"]) if p.get("symbol") else rows
         if path == "/fapi/v1/leverage":
             self.leverage[p["symbol"]] = int(p["leverage"])
             return {"leverage": int(p["leverage"])}

@@ -12,7 +12,8 @@ from collections.abc import Callable
 from typing import Any
 
 ORDER_ENDPOINTS = frozenset({"/fapi/v1/order", "/fapi/v1/batchOrders", "/fapi/v1/allOpenOrders"})
-_WEIGHT_1 = frozenset({"/fapi/v1/ticker/price", "/fapi/v1/ticker/bookTicker", "/fapi/v1/exchangeInfo"})
+_WEIGHT_1 = frozenset({"/fapi/v1/ticker/price", "/fapi/v1/ticker/bookTicker", "/fapi/v1/exchangeInfo",
+                       "/fapi/v1/leverageBracket"})
 # ADR-0011 point 7: account-wide lists weigh 40 (open orders without a symbol, as Binance publishes; the
 # conditional-order list as well until verified); open orders of one symbol weigh 1.
 _WEIGHT_40 = frozenset({"/fapi/v1/openAlgoOrders"})
