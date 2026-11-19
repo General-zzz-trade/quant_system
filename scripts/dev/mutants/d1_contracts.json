@@ -256,5 +256,11 @@
   "trading/adapters/binance/adapter.py",
   "    except (TypeError, ValueError, OverflowError):   # audit of D1, L2",
   "    except (TypeError, ValueError):   # audit of D1, L2"
+ ],
+ [
+  "third pass: a read failure escapes unwrapped",
+  "trading/infrastructure/target.py",
+  "    except Exception as exc:\n        raise RuntimeError(f\"the strategy ledger or the venue's positions",
+  "    except KeyError as exc:\n        raise RuntimeError(f\"the strategy ledger or the venue's positions"
  ]
 ]

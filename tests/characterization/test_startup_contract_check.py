@@ -274,3 +274,21 @@ def test_a_venue_position_of_a_fill_stored_but_not_yet_in_the_ledger_counts_as_h
     world["fake"].contract["ETHUSDT"] = {"status": "SETTLING"}
     _started(world)
     assert "not trading (settling)" in _paused(world)["ETHUSDT"]
+
+
+def test_a_positions_read_failing_in_the_contract_gate_refuses_with_its_alert(world, monkeypatch):  # noqa: F811
+    """Third pass: a read failure there is a refusal like every other, alert included (fail closed)."""
+    from trading.adapters.binance.rest import BinanceRetryableError
+    alerts = _alerts(monkeypatch)
+    fake, seen = world["fake"], []
+    signed = fake.request_signed
+
+    def second_fails(*, method, path, params=None):
+        if path == "/fapi/v2/positionRisk" and not (params or {}).get("symbol"):
+            seen.append(path)
+            if len(seen) == 2:                                   # the account check's read passes, the gate's fails
+                raise BinanceRetryableError("HTTP 503: unavailable")
+        return signed(method=method, path=path, params=params)
+    fake.request_signed = second_fails
+    _refused(world, "the strategy ledger or the venue's positions could not be read")
+    assert "execution start refused" in [title for title, _ in alerts.sent]
