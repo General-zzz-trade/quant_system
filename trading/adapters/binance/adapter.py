@@ -34,6 +34,7 @@ from trading.adapters.binance.rest import (
     BinanceNonRetryableError, BinanceRestClient, BinanceRestConfig,
 )
 from trading.adapters.binance.rate_limit import make_rate_limit_policy
+from trading.domain.contracts import Bracket, Contract, MarginTiers
 from trading.domain.venue import (STOP_ACTIVE, STOP_GONE, STOP_TRIGGERED, BalanceSnapshot, CanonicalBalance,
                                   CanonicalFill, OpenOrder, Placement, StopOrder, StopPlacement, Ticker, VenueOrder,
                                   VenuePosition)
@@ -46,6 +47,10 @@ logger = logging.getLogger(__name__)
 MAX_LEVERAGE = 10
 DEFAULT_LEVERAGE = 3
 MARGIN_TYPES = {"ISOLATED": "isolated", "CROSSED": "cross"}   # config value -> positionRisk value
+# plan D1: the exchange's contract words, translated here and nowhere else
+_CONTRACT_KINDS = {"PERPETUAL": "crypto", "TRADIFI_PERPETUAL": "tradfi"}
+_CONTRACT_STATES = {"TRADING": "open", "TRADING_HALT": "halted", "SETTLING": "settling", "PENDING_TRADING": "pending"}
+NO_DELISTING_MS = 4_133_404_800_000          # 2100-12-25: the delivery date of a perpetual with no delisting scheduled
 
 _INTERVAL_MAP = {
     "1": "1m", "5": "5m", "15": "15m", "60": "1h", "240": "4h", "D": "1d",
@@ -153,6 +158,7 @@ class BinanceAdapter:
         self._connected = False
         self._hedge_mode = False
         self._filters: dict[str, SymbolFilters] = {}
+        self._contracts: dict[str, Contract] = {}
 
     # ------------------------------------------------------------------
     # Connection and account configuration
@@ -163,6 +169,7 @@ class BinanceAdapter:
         try:
             info = self._client.request_public(method="GET", path="/fapi/v1/exchangeInfo")
             by_symbol = {s["symbol"]: s for s in info.get("symbols", [])}
+            self._contracts = {name: parse_contract(entry) for name, entry in by_symbol.items()}
             for symbol in symbols:
                 self._filters[symbol] = self._parse_filters(by_symbol[symbol])
             mode = self._client.request_signed(method="GET", path="/fapi/v1/positionSide/dual")
@@ -204,6 +211,15 @@ class BinanceAdapter:
             return self._filters[symbol]
         except KeyError:
             raise RuntimeError(f"No exchange filters loaded for {symbol}") from None
+
+    def contracts(self) -> dict[str, Contract]:
+        """Every listed contract as exchangeInfo described it at ``connect`` (plan D1)."""
+        return dict(self._contracts)
+
+    def get_margin_tiers(self) -> dict[str, MarginTiers]:
+        """Every symbol's maintenance margin tiers and maximum leverage (signed, read-only; plan D1). Errors
+        propagate: unknown tiers refuse the start."""
+        return parse_margin_tiers(self._client.request_signed(method="GET", path="/fapi/v1/leverageBracket"))
 
     def get_symbol_settings(self, symbol: str) -> tuple[int, str]:
         """(leverage, margin mode as positionRisk spells it: "cross" | "isolated"); errors propagate."""
@@ -600,3 +616,29 @@ class BinanceAdapter:
                 break
             end = oldest - 1
         return sorted(rows.items())[-limit:]
+
+
+def parse_margin_tiers(rows: Any) -> dict[str, MarginTiers]:
+    """GET /fapi/v1/leverageBracket's answer (a list, or one symbol's object) as each symbol's tiers, lowest notional
+    first (plan D1; also read by ``account_check --pilot``)."""
+    out = {}
+    for row in rows if isinstance(rows, list) else [rows]:
+        brackets = sorted((Bracket(floor=Decimal(str(b["notionalFloor"])), cap=Decimal(str(b["notionalCap"])),
+                                   maintenance_rate=Decimal(str(b["maintMarginRatio"])),
+                                   max_leverage=int(b["initialLeverage"])) for b in row["brackets"]),
+                          key=lambda b: b.floor)
+        out[row["symbol"]] = MarginTiers(row["symbol"], tuple(brackets))
+    return out
+
+
+def parse_contract(entry: dict[str, Any]) -> Contract:
+    """exchangeInfo's description of one contract in the domain's words; a missing delivery date counts as a
+    scheduled delisting (fail closed)."""
+    try:
+        delivery = int(entry.get("deliveryDate") or 0)
+    except (TypeError, ValueError, OverflowError):   # audit of D1, L2: one odd contract never stops the connection
+        delivery = 0
+    return Contract(symbol=str(entry["symbol"]), kind=_CONTRACT_KINDS.get(entry.get("contractType", ""), "other"),
+                    state=_CONTRACT_STATES.get(entry.get("status", ""), "other"),
+                    quote=str(entry.get("quoteAsset", "")),
+                    delisting_at=None if delivery >= NO_DELISTING_MS else delivery)

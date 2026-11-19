@@ -269,6 +269,15 @@ def main(argv: list[str] | None = None, *, load_spec: SpecLoader,
                 target.refuse_foreign_holdings(account, state_dir=args.state_dir, scope=scope,
                                                symbols=symbols, leverage=config.leverage,
                                                margin=config.margin)
+                paused = target.contract_gate(        # plan D1: each contract and its own margin tier
+                    account, state_dir=args.state_dir, scope=scope, symbols=symbols, stop_pct=config.stop_pct,
+                    leverage=config.leverage, margin=config.margin,
+                    notional=target.planned_notional(config.strategy_capital, config.strategy_leverage, len(symbols)))
+                if paused:                            # a held position: entries paused, the start goes on (M1)
+                    notifier.deliver("entries paused at start: contracts not fit to trade",
+                                     "; ".join(p for found in paused.values() for p in found)[:3000]
+                                     + ". Reductions and exits go on; a person releases the pauses "
+                                     "(trading.infrastructure.entry_pause).", timeout_s=START_ALERT_SECONDS)
             except RuntimeError as exc:                       # best effort: the refusal still stands
                 notifier.deliver("execution start refused", str(exc)[:3000], timeout_s=START_ALERT_SECONDS)
                 raise

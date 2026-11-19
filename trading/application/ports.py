@@ -17,6 +17,7 @@ from collections.abc import Iterable, Mapping
 from typing import Any, Callable, Optional, Protocol, runtime_checkable
 
 from trading.domain.bars import Bar
+from trading.domain.contracts import Contract, MarginTiers
 from trading.domain.venue import Placement, StopPlacement, Ticker
 from trading.domain.events import EventKind
 
@@ -276,6 +277,14 @@ class AccountStopView(Protocol):
 
     @property
     def symbol(self) -> str: ...
+
+
+class ContractInfo(Protocol):
+    """What the exchange says about its contracts and their margin tiers (plan D1); read-only."""
+
+    def contracts(self) -> Mapping[str, Contract]: ...
+
+    def get_margin_tiers(self) -> Mapping[str, MarginTiers]: ...
 
 
 class AccountSnapshot(Protocol):

@@ -400,7 +400,9 @@ def test_the_target_entry_point_takes_only_listed_parts_from_the_legacy_packages
 
 # Exchange status words and the range of Binance error codes (-1000 .. -5999).
 EXCHANGE_WORDS = {"NEW", "PARTIALLY_FILLED", "FILLED", "CANCELED", "EXPIRED", "EXPIRED_IN_MATCH", "REJECTED",
-                  "TRIGGERING", "TRIGGERED", "FINISHED", "GTX", "GTC", "STOP_MARKET", "MARK_PRICE", "CONDITIONAL"}
+                  "TRIGGERING", "TRIGGERED", "FINISHED", "GTX", "GTC", "STOP_MARKET", "MARK_PRICE", "CONDITIONAL",
+                  # plan D1: contract types and statuses (trading.domain.contracts has its own words)
+                  "PERPETUAL", "TRADIFI_PERPETUAL", "TRADING", "TRADING_HALT", "SETTLING", "PENDING_TRADING"}
 
 
 def _exchange_vocabulary(tree: ast.AST) -> list[str]:

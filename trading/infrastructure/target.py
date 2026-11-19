@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import threading
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from functools import partial
@@ -34,8 +34,8 @@ from trading.application.execution.stops import ProtectiveStopManager, StopVenue
 from trading.application.account_ownership import foreign_holdings
 from trading.application.issues import Issue
 from trading.application.mode_policy import ModePolicy
-from trading.application.ports import (AccountSnapshot, Clock, EntryPauses, EventLog, ExchangeAccount, FundingIncome,
-                                       KillLatch, OrderGateway, Sleeper)
+from trading.application.ports import (AccountSnapshot, Clock, ContractInfo, EntryPauses, EventLog, ExchangeAccount,
+                                       FundingIncome, KillLatch, OrderGateway, Sleeper)
 from trading.application.risk.entry_gate import CompositeRiskGate
 from trading.application.risk.exposure_gate import AccountExposureGate
 from trading.application.risk.loss_stop import StrategyLossStop, strategy_unrealized
@@ -44,6 +44,7 @@ from trading.application.risk.readiness import EntryReadinessGate
 from trading.application.session import ExecutionParts, LotRules, SizingEquity, TargetSession
 from trading.application.execution.recorded_journal import RecordedOrderJournal
 from trading.application.reset_wait import waits_for_reset
+from trading.domain.contracts import contract_problems, planned_notional  # noqa: F401 (the start-up's)
 from trading.domain.issues import AFTER_STOP_PAUSE
 from trading.domain.orders import LIMIT_OFFSET_BPS, OrderIntent
 from trading.domain.strategy.base import Strategy
@@ -117,6 +118,79 @@ def refuse_mainnet_symbols(*, testnet: bool, symbols: Sequence[str]) -> None:
     if not testnet and other:
         raise RuntimeError(f"mainnet trades only BTCUSDT and ETHUSDT (owner 2026-11-17); the spec also lists "
                            f"{', '.join(other)}; mainnet execution refused")
+
+
+def held_symbols(ledger: SqliteOrderJournal, symbols: Sequence[str]) -> set[str]:
+    """The symbols any ``target.*`` owner of the scope holds in the ledger; a ledger that cannot be read raises."""
+    held = set()
+    for owner in strategy_owners(ledger, symbols):
+        checkpoint = ledger.checkpoint(owner)
+        if checkpoint is not None and Decimal(str(checkpoint["position"]["qty"])) != 0:
+            held.add(owner[len(OWNER_PREFIX):])
+    return held
+
+
+def refuse_unsafe_contracts(account: ContractInfo, *, symbols: Sequence[str], stop_pct: Decimal, leverage: int,
+                            margin: str | None, notional: Decimal, held: Collection[str] = (),
+                            pause: Callable[[str, str], object] | None = None) -> dict[str, list[str]]:
+    """Plan D1: every symbol must be a trading USDT perpetual (crypto or TradFi) with no delisting scheduled, allow
+    the configured exchange leverage at its first tier and at the planned position's tier, and, with isolated margin,
+    keep the stop inside half the liquidation distance at that tier's maintenance margin rate. Read-only.
+
+    With nothing held an unfit symbol (or unreadable tiers) refuses the start. While the strategy holds a position
+    (``held``) a refusal would leave it with nobody to reduce, flatten or stop it (audit of D1, M1): every unfit
+    symbol's entries are paused instead, until a person releases them, and the problems are returned for the
+    alert; reductions and exits go on."""
+    contracts = account.contracts()
+    try:
+        tiers = account.get_margin_tiers()
+    except Exception as exc:
+        if not held or pause is None:
+            raise RuntimeError(f"margin tiers could not be read ({type(exc).__name__}: {exc}); execution refused") \
+                from exc
+        tiers = {}
+    problems = {symbol: found for symbol in symbols
+                if (found := contract_problems(symbol, contracts.get(symbol), tiers.get(symbol), stop_pct=stop_pct,
+                                               leverage=leverage, margin=margin, notional=notional))}
+    if not problems:
+        return {}
+    if not held or pause is None:
+        raise RuntimeError("contracts not fit to trade; execution refused: "
+                           + "; ".join(p for found in problems.values() for p in found))
+    for symbol, found in problems.items():
+        pause(symbol, "contract not fit to trade (plan D1): " + "; ".join(found))
+    return problems
+
+
+class StartAccount(ContractInfo, AccountSnapshot, Protocol):
+    """What the start-up's contract gate reads: the contracts, the margin tiers and the venue's positions."""
+
+
+def contract_gate(account: StartAccount, *, state_dir: Path, scope: str, symbols: Sequence[str], stop_pct: Decimal,
+                  leverage: int, margin: str | None, notional: Decimal) -> dict[str, list[str]]:
+    """``refuse_unsafe_contracts`` with the scope's ledger and entry pauses (the start-up's call, after the account
+    check so a refused start leaves no pause behind - re-audit of D1, N4). Held: a non-zero ledger position, an
+    unsettled strategy order (a fill not yet booked, N1) or a venue position on a spec symbol. Every failure to read
+    them or to write a pause is a refusal (N3)."""
+    ledger = SqliteOrderJournal(Path(state_dir) / STATE_DB, scope)
+    pauses = SqliteEntryPauses(Path(state_dir) / STATE_DB)
+    try:
+        held = held_symbols(ledger, symbols)
+        held |= {owner[len(OWNER_PREFIX):] for owner in strategy_owners(ledger, symbols)
+                 if ledger.orders(owner, unresolved=True)}
+        held |= {p.symbol for p in account.get_positions(strict=True) if p.symbol in symbols and p.qty != 0}
+    except Exception as exc:
+        raise RuntimeError(f"the strategy ledger or the venue's positions could not be read ({type(exc).__name__}: "
+                           f"{exc}); execution refused") from exc
+
+    def pause(symbol: str, cause: str) -> None:
+        try:
+            pauses.pause(symbol, cause)
+        except Exception as exc:
+            raise RuntimeError(f"{symbol}: the entry pause could not be written ({type(exc).__name__}: {exc}); "
+                               "execution refused") from exc
+    return refuse_unsafe_contracts(account, symbols=symbols, stop_pct=stop_pct, leverage=leverage, margin=margin,
+                                   notional=notional, held=held, pause=pause)
 
 
 def account_checker(account: AccountSnapshot, *, state_dir: Path, scope: str, symbols: Sequence[str], leverage: int,

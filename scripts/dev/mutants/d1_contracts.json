@@ -1,0 +1,266 @@
+[
+ [
+  "delivery contracts pass",
+  "trading/domain/contracts.py",
+  "if contract.kind not in PERPETUAL_KINDS or contract.quote != \"USDT\":",
+  "if contract.quote != \"USDT\":"
+ ],
+ [
+  "other quote assets pass",
+  "trading/domain/contracts.py",
+  "if contract.kind not in PERPETUAL_KINDS or contract.quote != \"USDT\":",
+  "if contract.kind not in PERPETUAL_KINDS:"
+ ],
+ [
+  "only settling refused",
+  "trading/domain/contracts.py",
+  "    if contract.state != \"open\":",
+  "    if contract.state == \"settling\":"
+ ],
+ [
+  "delisting ignored",
+  "trading/domain/contracts.py",
+  "    if contract.delisting_at is not None:",
+  "    if False:"
+ ],
+ [
+  "empty tiers pass as known",
+  "trading/domain/contracts.py",
+  "    if tiers is None or not tiers.brackets:",
+  "    if tiers is None:"
+ ],
+ [
+  "max leverage equal refused",
+  "trading/domain/contracts.py",
+  "    first_ok = tiers.max_leverage() >= leverage",
+  "    first_ok = tiers.max_leverage() > leverage"
+ ],
+ [
+  "isolated rule skipped",
+  "trading/domain/contracts.py",
+  "    if margin == \"ISOLATED\":\n        limit",
+  "    if margin == \"CROSSED\":\n        limit"
+ ],
+ [
+  "whole distance allowed",
+  "trading/domain/contracts.py",
+  "        limit = fraction * liquidation_distance(leverage, float(rate))",
+  "        limit = liquidation_distance(leverage, float(rate))"
+ ],
+ [
+  "fixed 0.5 % rate again",
+  "trading/domain/contracts.py",
+  "        limit = fraction * liquidation_distance(leverage, float(rate))",
+  "        limit = fraction * liquidation_distance(leverage, 0.005)"
+ ],
+ [
+  "tier cap inclusive",
+  "trading/domain/contracts.py",
+  "if b.floor <= notional < b.cap",
+  "if b.floor <= notional <= b.cap"
+ ],
+ [
+  "max leverage of the last tier",
+  "trading/domain/contracts.py",
+  "return self.brackets[0].max_leverage if self.brackets else 0",
+  "return self.brackets[-1].max_leverage if self.brackets else 0"
+ ],
+ [
+  "halt read as trading",
+  "trading/adapters/binance/adapter.py",
+  "\"TRADING_HALT\": \"halted\"",
+  "\"TRADING_HALT\": \"open\""
+ ],
+ [
+  "tradfi read as other",
+  "trading/adapters/binance/adapter.py",
+  "\"TRADIFI_PERPETUAL\": \"tradfi\"",
+  "\"TRADIFI_PERPETUAL\": \"other\""
+ ],
+ [
+  "delivery date ignored",
+  "trading/adapters/binance/adapter.py",
+  "delisting_at=None if delivery >= NO_DELISTING_MS else delivery)",
+  "delisting_at=None)"
+ ],
+ [
+  "missing date read as none",
+  "trading/adapters/binance/adapter.py",
+  "delivery = int(entry.get(\"deliveryDate\") or 0)",
+  "delivery = int(entry.get(\"deliveryDate\") or NO_DELISTING_MS)"
+ ],
+ [
+  "tiers not sorted",
+  "trading/adapters/binance/adapter.py",
+  "                          key=lambda b: b.floor)",
+  "                          key=lambda b: -b.floor)"
+ ],
+ [
+  "unreadable tiers read as none",
+  "trading/infrastructure/target.py",
+  "        if not held or pause is None:\n            raise RuntimeError(f\"margin tiers could not be read",
+  "        if False:\n            raise RuntimeError(f\"margin tiers could not be read"
+ ],
+ [
+  "no headroom",
+  "trading/domain/contracts.py",
+  "/ Decimal(count) * TIER_HEADROOM",
+  "/ Decimal(count)"
+ ],
+ [
+  "strategy leverage ignored",
+  "trading/domain/contracts.py",
+  "return Decimal(strategy_capital) * Decimal(strategy_leverage)",
+  "return Decimal(strategy_capital)"
+ ],
+ [
+  "check not called",
+  "trading/infrastructure/cli/target.py",
+  "                paused = target.contract_gate(        # plan D1",
+  "                paused = {} or (lambda *a, **k: {})(        # plan D1"
+ ],
+ [
+  "audit: leverage rule skipped when isolated",
+  "trading/domain/contracts.py",
+  "    if not first_ok:\n",
+  "    if not first_ok and margin != \"ISOLATED\":\n"
+ ],
+ [
+  "audit: a zero delisting time passes",
+  "trading/domain/contracts.py",
+  "    if contract.delisting_at is not None:",
+  "    if contract.delisting_at:"
+ ],
+ [
+  "audit: quote read as USDT always",
+  "trading/adapters/binance/adapter.py",
+  "quote=str(entry.get(\"quoteAsset\", \"\")),",
+  "quote=\"USDT\","
+ ],
+ [
+  "audit: unknown status reads open",
+  "trading/adapters/binance/adapter.py",
+  "_CONTRACT_STATES.get(entry.get(\"status\", \"\"), \"other\")",
+  "_CONTRACT_STATES.get(entry.get(\"status\", \"\"), \"open\")"
+ ],
+ [
+  "audit: a missing symbol borrows BTC's tiers",
+  "trading/infrastructure/target.py",
+  "tiers.get(symbol), stop_pct=stop_pct",
+  "tiers.get(symbol, tiers.get(\"BTCUSDT\")), stop_pct=stop_pct"
+ ],
+ [
+  "audit: check only on the testnet",
+  "trading/infrastructure/cli/target.py",
+  "                paused = target.contract_gate(        # plan D1",
+  "                paused = {} if not testnet else target.contract_gate(        # plan D1"
+ ],
+ [
+  "L3: tier leverage not checked",
+  "trading/domain/contracts.py",
+  "    if first_ok and bracket.max_leverage < leverage:",
+  "    if False:"
+ ],
+ [
+  "L5: unusable rate passes",
+  "trading/domain/contracts.py",
+  "    if not (rate.is_finite() and 0 <= rate < Decimal(1) / Decimal(leverage)):",
+  "    if False:"
+ ],
+ [
+  "L5: only infinite rates refused",
+  "trading/domain/contracts.py",
+  "    if not (rate.is_finite() and 0 <= rate < Decimal(1) / Decimal(leverage)):",
+  "    if not rate.is_finite():"
+ ],
+ [
+  "L2: malformed date breaks connect",
+  "trading/adapters/binance/adapter.py",
+  "    except (TypeError, ValueError, OverflowError):   # audit of D1, L2",
+  "    except (TypeError, OverflowError):   # audit of D1, L2"
+ ],
+ [
+  "M1: a held position refuses anyway",
+  "trading/infrastructure/target.py",
+  "    if not held or pause is None:\n        raise RuntimeError(\"contracts not fit",
+  "    if True:\n        raise RuntimeError(\"contracts not fit"
+ ],
+ [
+  "M1: nothing paused",
+  "trading/infrastructure/target.py",
+  "        pause(symbol, \"contract not fit to trade (plan D1): \"",
+  "        print(symbol, \"contract not fit to trade (plan D1): \""
+ ],
+ [
+  "M1: a flat ledger counts as held",
+  "trading/infrastructure/target.py",
+  "if checkpoint is not None and Decimal(str(checkpoint[\"position\"][\"qty\"])) != 0:",
+  "if checkpoint is not None:"
+ ],
+ [
+  "M1: no alert for the pauses",
+  "trading/infrastructure/cli/target.py",
+  "                if paused:                            # a held position",
+  "                if False:                            # a held position"
+ ],
+ [
+  "pilot: contract rule skipped",
+  "scripts/pilot_check.py",
+  "    items += contract_items(client, values, symbols)\n",
+  "    items += []\n"
+ ],
+ [
+  "pilot: margin read in lower case",
+  "scripts/pilot_check.py",
+  "margin = values.get(\"BINANCE_MARGIN_TYPE\", \"\").strip().upper() or None",
+  "margin = values.get(\"BINANCE_MARGIN_TYPE\", \"\").strip().lower() or None"
+ ],
+ [
+  "pilot: strategy leverage ignored",
+  "scripts/pilot_check.py",
+  "Decimal(values.get(\"STRATEGY_LEVERAGE\", \"\").strip() or \"1\")",
+  "Decimal(\"1\")"
+ ],
+ [
+  "N1: unsettled orders not held",
+  "trading/infrastructure/target.py",
+  "                 if ledger.orders(owner, unresolved=True)}",
+  "                 if False}"
+ ],
+ [
+  "N1: venue positions not held",
+  "trading/infrastructure/target.py",
+  "if p.symbol in symbols and p.qty != 0}",
+  "if False}"
+ ],
+ [
+  "N2: the contract pause ends by itself",
+  "trading/infrastructure/target.py",
+  "            pauses.pause(symbol, cause)\n",
+  "            pauses.pause(symbol, cause, ends_at=time.time() + 14400)\n"
+ ],
+ [
+  "N3: a pause write error escapes unwrapped",
+  "trading/infrastructure/target.py",
+  "        except Exception as exc:\n            raise RuntimeError(f\"{symbol}: the entry pause",
+  "        except ArithmeticError as exc:\n            raise RuntimeError(f\"{symbol}: the entry pause"
+ ],
+ [
+  "N5: the pilot checks the first tier",
+  "scripts/pilot_check.py",
+  "        notional = planned_notional(Decimal(capital) if capital else None,",
+  "        notional = Decimal(0) if True else planned_notional(Decimal(capital) if capital else None,"
+ ],
+ [
+  "N7: an infinite date breaks connect",
+  "trading/adapters/binance/adapter.py",
+  "    except (TypeError, ValueError, OverflowError):   # audit of D1, L2",
+  "    except (TypeError, ValueError):   # audit of D1, L2"
+ ],
+ [
+  "third pass: a read failure escapes unwrapped",
+  "trading/infrastructure/target.py",
+  "    except Exception as exc:\n        raise RuntimeError(f\"the strategy ledger or the venue's positions",
+  "    except KeyError as exc:\n        raise RuntimeError(f\"the strategy ledger or the venue's positions"
+ ]
+]
